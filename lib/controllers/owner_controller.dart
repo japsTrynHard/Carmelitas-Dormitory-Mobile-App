@@ -1,36 +1,183 @@
 import 'package:flutter/foundation.dart';
 
-import '../data/mock_data.dart';
 import '../models/models.dart';
+import '../services/curfew_service.dart';
+import '../services/confidential_report_service.dart';
+import '../services/contract_service.dart';
+import '../services/gate_service.dart';
+import '../services/payment_service.dart';
+import '../services/room_service.dart';
+import '../services/staff_maintenance_service.dart';
+import '../services/tenant_service.dart';
+import '../services/visitor_service.dart';
 
 class OwnerController extends ChangeNotifier {
   OwnerController._();
 
   static final OwnerController instance = OwnerController._();
 
-  List<TenantDirectoryEntry> get tenants =>
-      List.unmodifiable(MockData.tenantDirectory);
-  List<DormRoomStatus> get rooms =>
-      List.unmodifiable(MockData.roomStatuses);
-  List<Payment> get payments => List.unmodifiable(MockData.payments);
-  List<MaintenanceReport> get maintenance =>
-      List.unmodifiable(MockData.maintenance);
-  List<GateEvent> get gateEvents =>
-      List.unmodifiable(MockData.gateEvents);
-  List<CurfewRequest> get curfewRequests =>
-      List.unmodifiable(MockData.curfewRequests);
-  List<VisitorRequest> get visitors =>
-      List.unmodifiable(MockData.visitors);
-  List<ConcernReport> get concerns =>
-      List.unmodifiable(MockData.concerns);
-  List<DeviceStatus> get devices =>
-      List.unmodifiable(MockData.devices);
-  List<Announcement> get announcements =>
-      List.unmodifiable(MockData.announcements);
-  List<OwnerConversation> get conversations =>
-      List.unmodifiable(MockData.ownerConversations);
-  List<GateReviewRecord> get gateReviews =>
-      List.unmodifiable(MockData.gateReviews);
+  final CurfewService _curfewService = const CurfewService();
+  final ContractService _contractService = const ContractService();
+  final List<TenantContract> _contracts = [];
+  bool _contractsLoading = false;
+  String? _contractsError;
+  bool _contractsLoadedOnce = false;
+  final ConfidentialReportService _confidentialReportService =
+      const ConfidentialReportService();
+  final List<ConcernReport> _concerns = [];
+  bool _concernsLoading = false;
+  String? _concernsError;
+  bool _concernsLoadedOnce = false;
+  final List<CurfewRequest> _curfewRequests = [];
+  bool _curfewLoading = false;
+  String? _curfewError;
+  bool _curfewLoadedOnce = false;
+
+  final PaymentService _paymentService = const PaymentService();
+  final List<Payment> _payments = [];
+  bool _paymentsLoading = false;
+  String? _paymentsError;
+  bool _paymentsLoadedOnce = false;
+
+  final RoomService _roomService = const RoomService();
+  final List<RoomRecord> _roomRecords = [];
+  bool _roomsLoading = false;
+  String? _roomsError;
+
+  final StaffMaintenanceService _staffMaintenanceService =
+      const StaffMaintenanceService();
+  final List<StaffMaintenanceReport> _staffMaintenanceReports = [];
+  bool _maintenanceLoading = false;
+  String? _maintenanceError;
+  bool _maintenanceLoadedOnce = false;
+
+  final GateService _gateService = const GateService();
+  final TenantService _tenantService = const TenantService();
+  final VisitorService _visitorService = const VisitorService();
+  List<GateEvent> _gateEvents = [];
+  bool _gateLoading = false;
+  String? _gateError;
+  bool _gateLoadedOnce = false;
+
+  final List<VisitorRequest> _visitors = [];
+  bool _visitorsLoading = false;
+  String? _visitorsError;
+  bool _visitorsLoadedOnce = false;
+
+  List<TenantDirectoryEntry> _tenants = [];
+  bool _tenantsLoading = false;
+  bool _tenantsLoadedOnce = false;
+  String? _tenantsError;
+
+  List<CurfewRequest> get curfewRequests => List.unmodifiable(_curfewRequests);
+  List<TenantContract> get contracts => List.unmodifiable(_contracts);
+  bool get contractsLoading => _contractsLoading;
+  String? get contractsError => _contractsError;
+  bool get contractsLoadedOnce => _contractsLoadedOnce;
+  int get contractsExpiringWithin30Days {
+    final today = DateTime.now();
+    final limit = today.add(const Duration(days: 30));
+    return _contracts
+        .where((item) =>
+            item.status == 'active' &&
+            !item.endsOn.isBefore(today) &&
+            !item.endsOn.isAfter(limit))
+        .length;
+  }
+
+  bool get curfewLoading => _curfewLoading;
+  String? get curfewError => _curfewError;
+  bool get curfewLoadedOnce => _curfewLoadedOnce;
+
+  int get pendingStaffCurfewCount =>
+      _curfewRequests.where((r) => r.status == 'pending_staff').length;
+
+  int get pendingTotalCurfewCount =>
+      _curfewRequests.where((r) => r.isPending).length;
+
+  List<StaffMaintenanceReport> get staffMaintenanceReports =>
+      List.unmodifiable(_staffMaintenanceReports);
+  bool get maintenanceLoading => _maintenanceLoading;
+  String? get maintenanceError => _maintenanceError;
+  bool get maintenanceLoadedOnce => _maintenanceLoadedOnce;
+
+  int get highPriorityMaintenance =>
+      _staffMaintenanceReports.where((r) => r.isOpen && r.isHighUrgency).length;
+
+  int get inProgressMaintenanceCount =>
+      _staffMaintenanceReports.where((r) => r.isInProgress).length;
+
+  int get resolvedMaintenanceCount =>
+      _staffMaintenanceReports.where((r) => r.isResolved).length;
+
+  List<TenantDirectoryEntry> get tenants => List.unmodifiable(_tenants);
+  bool get tenantsLoading => _tenantsLoading;
+  String? get tenantsError => _tenantsError;
+
+  List<DormRoomStatus> get rooms {
+    if (_roomRecords.isEmpty) {
+      return const [];
+    }
+    return _roomRecords.map((r) {
+      final status = r.occupied >= r.capacity
+          ? 'Full'
+          : (r.occupied > 0 ? 'Partially occupied' : 'Available');
+      return DormRoomStatus(
+        roomNumber: r.number,
+        floor: r.floor,
+        capacity: r.capacity,
+        occupied: r.occupied,
+        status: status,
+      );
+    }).toList();
+  }
+
+  List<RoomRecord> get roomRecords => List.unmodifiable(_roomRecords);
+  bool get roomsLoading => _roomsLoading;
+  String? get roomsError => _roomsError;
+  List<MaintenanceReport> get maintenance {
+    if (_staffMaintenanceReports.isNotEmpty) {
+      return _staffMaintenanceReports
+          .map((s) => MaintenanceReport(
+                id: s.id,
+                category: s.category,
+                description: s.description,
+                location: s.location,
+                urgency: s.urgency.isNotEmpty
+                    ? '${s.urgency[0].toUpperCase()}${s.urgency.substring(1).toLowerCase()}'
+                    : s.urgency,
+                status: s.statusLabel,
+                createdAt: s.createdAt,
+                photoPath: s.photoPath,
+                notes: s.notes,
+                staffNotes: s.notes,
+                resolvedAt: s.resolvedAt,
+              ))
+          .toList();
+    }
+    return const [];
+  }
+
+  List<MaintenanceReport> get maintenanceByPriority {
+    final list = [...maintenance];
+    const rank = {'High': 3, 'Medium': 2, 'Low': 1};
+    return list
+      ..sort((a, b) => (rank[b.urgency] ?? 0).compareTo(rank[a.urgency] ?? 0));
+  }
+
+  List<GateEvent> get gateEvents => List.unmodifiable(_gateEvents);
+  List<GateEvent> get geofenceEvents => gateEvents;
+  bool get gateLoading => _gateLoading;
+  String? get gateError => _gateError;
+  List<VisitorRequest> get visitors => List.unmodifiable(_visitors);
+  bool get visitorsLoading => _visitorsLoading;
+  String? get visitorsError => _visitorsError;
+  bool get visitorsLoadedOnce => _visitorsLoadedOnce;
+  List<ConcernReport> get concerns => List.unmodifiable(_concerns);
+  bool get concernsLoading => _concernsLoading;
+  String? get concernsError => _concernsError;
+  List<Announcement> get announcements => const [];
+  List<OwnerConversation> get conversations => const [];
 
   int get occupiedBeds =>
       rooms.fold<int>(0, (sum, room) => sum + room.occupied);
@@ -38,31 +185,135 @@ class OwnerController extends ChangeNotifier {
   int get totalCapacity =>
       rooms.fold<int>(0, (sum, room) => sum + room.capacity);
 
-  int get pendingPaymentProofs => payments
-      .where((payment) => payment.status == 'Pending verification')
-      .length;
+  int get pendingPaymentProofs =>
+      payments.where((payment) => payment.isPending).length;
 
-  int get openMaintenance => maintenance
-      .where(
-        (report) =>
-            report.status != 'Completed' &&
-            report.status != 'Closed',
-      )
-      .length;
+  int get overduePaymentCount =>
+      payments.where((payment) => payment.isOverdue).length;
 
-  int get pendingCurfewReviews => curfewRequests
-      .where((request) => request.ownerStatus == 'Pending')
-      .length;
+  double get totalCollectedRevenue => payments
+      .where((payment) => payment.isVerified)
+      .fold<double>(0.0, (sum, p) => sum + p.amount);
+
+  double get totalOutstandingRevenue => payments
+      .where((payment) => payment.isDue || payment.isPending)
+      .fold<double>(0.0, (sum, p) => sum + p.outstandingAmount);
+
+  int get openMaintenance => _maintenanceLoadedOnce
+      ? _staffMaintenanceReports.where((report) => report.isOpen).length
+      : maintenance
+          .where(
+            (report) =>
+                report.status != 'Completed' &&
+                report.status != 'Closed' &&
+                report.status != 'Resolved' &&
+                report.status != 'Cancelled',
+          )
+          .length;
 
   int get pendingVisitors =>
-      visitors.where((visitor) => visitor.status == 'Pending').length;
+      visitors.where((visitor) => visitor.isPending).length;
 
-  int get pendingGateReviews =>
-      gateReviews.where((review) => review.reviewStatus == 'Pending').length;
+  int get tenantsInsideCount => tenants.where((t) => t.isInside).length;
 
-  void verifyPayment(Payment payment, bool approve) {
-    payment.status = approve ? 'Verified' : 'Rejected';
+  int get tenantsOutsideCount => tenants.where((t) => t.isOutside).length;
+
+  int get tenantsUnavailableCount =>
+      tenants.where((t) => t.isUnavailable).length;
+
+  List<Payment> get payments => List.unmodifiable(_payments);
+  bool get paymentsLoading => _paymentsLoading;
+  String? get paymentsError => _paymentsError;
+  bool get paymentsLoadedOnce => _paymentsLoadedOnce;
+
+  Future<void> loadPayments({bool force = false}) async {
+    if (_paymentsLoading && !force) return;
+    if (_paymentsLoadedOnce && !force) return;
+
+    _paymentsLoading = true;
+    _paymentsError = null;
     notifyListeners();
+
+    try {
+      final list = await _paymentService.listAllPayments();
+      _payments
+        ..clear()
+        ..addAll(list);
+      _paymentsLoadedOnce = true;
+    } catch (e) {
+      _paymentsError = e.toString();
+    } finally {
+      _paymentsLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> loadRooms({bool force = false}) async {
+    if (_roomsLoading) return;
+    if (_roomRecords.isNotEmpty && !force) return;
+
+    _roomsLoading = true;
+    _roomsError = null;
+    notifyListeners();
+
+    try {
+      final list = await _roomService.listRooms(forceRefresh: force);
+      _roomRecords
+        ..clear()
+        ..addAll(list);
+    } catch (e) {
+      _roomsError = e.toString();
+    } finally {
+      _roomsLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> verifyPayment(Payment payment, bool approve,
+      {String? notes}) async {
+    try {
+      final updated = await _paymentService.verifyPayment(
+        paymentId: payment.id,
+        approve: approve,
+        reviewNotes: notes,
+      );
+
+      final index = _payments.indexWhere((p) => p.id == payment.id);
+      if (index != -1) {
+        _payments[index] = updated;
+      }
+      payment.status = updated.status;
+    } catch (error) {
+      _paymentsError = error.toString();
+      notifyListeners();
+      rethrow;
+    }
+    notifyListeners();
+  }
+
+  Future<Payment> createInvoice({
+    required String tenantId,
+    required String title,
+    required String category,
+    required double amount,
+    required DateTime dueDate,
+  }) async {
+    final invoice = await _paymentService.createInvoice(
+      tenantId: tenantId,
+      title: title,
+      category: category,
+      amount: amount,
+      dueDate: dueDate,
+    );
+
+    final index = _payments.indexWhere((p) => p.id == invoice.id);
+    if (index != -1) {
+      _payments[index] = invoice;
+    } else {
+      _payments.insert(0, invoice);
+    }
+    notifyListeners();
+    return invoice;
   }
 
   void updateMaintenance(
@@ -77,87 +328,371 @@ class OwnerController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void decideCurfew(CurfewRequest request, bool approve) {
-    request.ownerStatus = approve ? 'Approved' : 'Rejected';
+  Future<void> loadVisitors({bool force = false}) async {
+    if (_visitorsLoading || (_visitorsLoadedOnce && !force)) return;
+    _visitorsLoading = true;
+    _visitorsError = null;
     notifyListeners();
+    try {
+      final items = await _visitorService.listStaffRequests();
+      _visitors
+        ..clear()
+        ..addAll(items);
+      _visitorsLoadedOnce = true;
+    } catch (error) {
+      _visitorsError = error.toString().replaceFirst('Exception: ', '');
+    } finally {
+      _visitorsLoading = false;
+      notifyListeners();
+    }
   }
 
-  void decideVisitor(VisitorRequest request, bool approve) {
-    request.status = approve ? 'Approved' : 'Rejected';
-    notifyListeners();
-  }
-
-  void updateConcernStatus(ConcernReport report, String status) {
-    report.status = status;
-    notifyListeners();
-  }
-
-  void publishAnnouncement({
-    required String title,
-    required String body,
-    required String audience,
-  }) {
-    final cleanTitle = title.trim();
-    final cleanBody = body.trim();
-    if (cleanTitle.isEmpty || cleanBody.isEmpty) return;
-
-    MockData.announcements.insert(
-      0,
-      Announcement(
-        id: 'a${DateTime.now().millisecondsSinceEpoch}',
-        title: cleanTitle,
-        body: cleanBody,
-        createdAt: DateTime.now(),
-        audience: audience,
-      ),
+  Future<void> transitionVisitor(
+    VisitorRequest request,
+    String action, {
+    String? note,
+  }) async {
+    final updated = await _visitorService.transition(
+      requestId: request.id,
+      action: action,
+      note: note,
     );
+    final index = _visitors.indexWhere((item) => item.id == updated.id);
+    if (index == -1) {
+      _visitors.insert(0, updated);
+    } else {
+      _visitors[index] = updated;
+    }
+    _visitorsError = null;
     notifyListeners();
   }
 
-  void sendOwnerMessage(
-    OwnerConversation conversation,
-    String body,
-  ) {
-    final clean = body.trim();
-    if (clean.isEmpty) return;
+  Future<List<VisitorEvent>> loadVisitorEvents(String requestId) =>
+      _visitorService.listEvents(requestId);
 
-    conversation.messages.add(
-      ChatMessage(
-        id: 'ocm${DateTime.now().millisecondsSinceEpoch}',
-        senderName: 'Caretaker',
-        senderRole: 'ownerCaretaker',
-        body: clean,
-        sentAt: DateTime.now(),
-      ),
-    );
+  @visibleForTesting
+  void setVisitorsForTesting(List<VisitorRequest> items) {
+    _visitors
+      ..clear()
+      ..addAll(items);
+    _visitorsLoadedOnce = true;
+    _visitorsLoading = false;
+    _visitorsError = null;
     notifyListeners();
   }
 
-  void reviewGateEvent(
-    GateReviewRecord review, {
+  Future<void> loadConcerns({bool force = false}) async {
+    if (_concernsLoading || (_concernsLoadedOnce && !force)) return;
+    _concernsLoading = true;
+    _concernsError = null;
+    notifyListeners();
+    try {
+      final items = await _confidentialReportService.listForOwner();
+      _concerns
+        ..clear()
+        ..addAll(items);
+      _concernsLoadedOnce = true;
+    } catch (error) {
+      _concernsError = error.toString().replaceFirst('Exception: ', '');
+    } finally {
+      _concernsLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> reviewConcern({
+    required ConcernReport report,
     required String status,
-    String note = '',
-  }) {
-    review.reviewStatus = status;
-    review.note = note.trim();
+    required String notes,
+  }) async {
+    final updated = await _confidentialReportService.review(
+      reportId: report.id,
+      status: status,
+      notes: notes,
+    );
+    final index = _concerns.indexWhere((item) => item.id == report.id);
+    if (index >= 0) _concerns[index] = updated;
     notifyListeners();
   }
 
-  void addManualOverride({
-    required String reason,
-    required String action,
-  }) {
-    MockData.gateEvents.insert(
-      0,
-      GateEvent(
-        id: 'override-${DateTime.now().millisecondsSinceEpoch}',
-        person: 'Manual override',
-        direction: action,
-        time: DateTime.now(),
-        verification: reason.trim().isEmpty ? 'Caretaker override' : reason.trim(),
-        status: 'Verified',
-      ),
+  Future<void> loadCurfewRequests({bool force = false}) async {
+    if (_curfewLoading && !force) return;
+    if (_curfewLoadedOnce && !force) return;
+
+    _curfewLoading = true;
+    _curfewError = null;
+    notifyListeners();
+
+    try {
+      final list = await _curfewService.listStaffRequests();
+      _curfewRequests
+        ..clear()
+        ..addAll(list);
+      _curfewLoadedOnce = true;
+    } catch (e) {
+      _curfewError = e.toString();
+    } finally {
+      _curfewLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<CurfewRequest> decideCurfewRequest({
+    required String requestId,
+    required bool approve,
+    String? notes,
+  }) async {
+    final updated = await _curfewService.decideStaffRequest(
+      requestId: requestId,
+      approve: approve,
+      notes: notes,
     );
+
+    final index = _curfewRequests.indexWhere((r) => r.id == requestId);
+    if (index != -1) {
+      _curfewRequests[index] = updated;
+    } else {
+      _curfewRequests.insert(0, updated);
+    }
+    notifyListeners();
+    return updated;
+  }
+
+  Future<void> loadStaffMaintenance({bool force = false}) async {
+    if (_maintenanceLoading && !force) return;
+    if (_maintenanceLoadedOnce && !force) return;
+
+    _maintenanceLoading = true;
+    _maintenanceError = null;
+    notifyListeners();
+
+    try {
+      final reports = await _staffMaintenanceService.listReports();
+      _staffMaintenanceReports
+        ..clear()
+        ..addAll(reports);
+      _maintenanceLoadedOnce = true;
+    } catch (e) {
+      _maintenanceError = staffMaintenanceError(e);
+    } finally {
+      _maintenanceLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> updateStaffMaintenance({
+    required StaffMaintenanceReport report,
+    required String status,
+    required String notes,
+  }) async {
+    await _staffMaintenanceService.save(report, status, notes);
+    await loadStaffMaintenance(force: true);
+  }
+
+  @visibleForTesting
+  void setStaffMaintenanceForTesting(List<StaffMaintenanceReport> reports) {
+    _staffMaintenanceReports
+      ..clear()
+      ..addAll(reports);
+    _maintenanceLoadedOnce = true;
+    _maintenanceLoading = false;
+    _maintenanceError = null;
+    notifyListeners();
+  }
+
+  @visibleForTesting
+  void setPaymentsForTesting(List<Payment> items) {
+    _payments
+      ..clear()
+      ..addAll(items);
+    _paymentsLoadedOnce = true;
+    _paymentsLoading = false;
+    _paymentsError = null;
+    notifyListeners();
+  }
+
+  Future<void> loadGateEvents({bool force = false}) async {
+    if (_gateLoading && !force) return;
+    if (_gateLoadedOnce && !force) return;
+
+    _gateLoading = true;
+    _gateError = null;
+    notifyListeners();
+
+    try {
+      final events = await _gateService.loadGateEvents(forceRefresh: force);
+      _gateEvents = events;
+      _gateLoadedOnce = true;
+    } catch (e) {
+      _gateError = e.toString();
+    } finally {
+      _gateLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> loadTenants({bool force = false}) async {
+    if (_tenantsLoading && !force) return;
+    if (_tenantsLoadedOnce && !force) return;
+
+    _tenantsLoading = true;
+    _tenantsError = null;
+    notifyListeners();
+
+    try {
+      final list = await _tenantService.loadTenants(forceRefresh: force);
+      _tenants = list;
+      _tenantsLoadedOnce = true;
+    } catch (error) {
+      _tenantsError = error.toString().replaceFirst('Exception: ', '');
+    } finally {
+      _tenantsLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> loadContracts({bool force = false}) async {
+    if (_contractsLoading && !force) return;
+    if (_contractsLoadedOnce && !force) return;
+    _contractsLoading = true;
+    _contractsError = null;
+    notifyListeners();
+    try {
+      _contracts
+        ..clear()
+        ..addAll(await _contractService.listContracts());
+      _contractsLoadedOnce = true;
+    } catch (error) {
+      _contractsError = error.toString().replaceFirst('Exception: ', '');
+    } finally {
+      _contractsLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<TenantContract> createContract({
+    required String tenantId,
+    required String contractNumber,
+    required DateTime startsOn,
+    required DateTime endsOn,
+    required double monthlyRent,
+    required double securityDeposit,
+    required String status,
+    String? notes,
+  }) async {
+    final item = await _contractService.createContract(
+      tenantId: tenantId,
+      contractNumber: contractNumber,
+      startsOn: startsOn,
+      endsOn: endsOn,
+      monthlyRent: monthlyRent,
+      securityDeposit: securityDeposit,
+      status: status,
+      notes: notes,
+    );
+    _contracts.insert(0, item);
+    notifyListeners();
+    return item;
+  }
+
+  Future<TenantContract> updateContract(TenantContract contract) async {
+    final item = await _contractService.updateContract(contract);
+    final index = _contracts.indexWhere((value) => value.id == item.id);
+    if (index >= 0) _contracts[index] = item;
+    notifyListeners();
+    return item;
+  }
+
+  Future<void> deleteContract(String id) async {
+    await _contractService.deleteContract(id);
+    _contracts.removeWhere((value) => value.id == id);
+    notifyListeners();
+  }
+
+  @visibleForTesting
+  void setContractsForTesting(List<TenantContract> items) {
+    _contracts
+      ..clear()
+      ..addAll(items);
+    _contractsLoadedOnce = true;
+    _contractsLoading = false;
+    _contractsError = null;
+    notifyListeners();
+  }
+
+  Future<void> recordStaffManualLog({
+    required String tenantId,
+    required String direction,
+    required String notes,
+    String? tenantName,
+  }) async {
+    await _gateService.recordStaffManualLog(
+      tenantId: tenantId,
+      direction: direction,
+      notes: notes,
+      tenantName: tenantName,
+    );
+    await loadGateEvents(force: true);
+    await loadTenants(force: true);
+  }
+
+  @visibleForTesting
+  void setGateEventsForTesting(List<GateEvent> events) {
+    _gateEvents
+      ..clear()
+      ..addAll(events);
+    _gateLoadedOnce = true;
+    _gateLoading = false;
+    _gateError = null;
+    notifyListeners();
+  }
+
+  @visibleForTesting
+  void setTenantsForTesting(List<TenantDirectoryEntry> items) {
+    _tenants
+      ..clear()
+      ..addAll(items);
+    _tenantsLoadedOnce = true;
+    _tenantsLoading = false;
+    notifyListeners();
+  }
+
+  void clear() {
+    _payments.clear();
+    _paymentsLoading = false;
+    _paymentsError = null;
+    _paymentsLoadedOnce = false;
+    _roomRecords.clear();
+    _roomsLoading = false;
+    _roomsError = null;
+    _curfewRequests.clear();
+    _curfewLoading = false;
+    _curfewError = null;
+    _curfewLoadedOnce = false;
+    _concerns.clear();
+    _concernsLoading = false;
+    _concernsError = null;
+    _concernsLoadedOnce = false;
+    _staffMaintenanceReports.clear();
+    _maintenanceLoading = false;
+    _maintenanceError = null;
+    _maintenanceLoadedOnce = false;
+    _gateEvents.clear();
+    _gateLoading = false;
+    _gateError = null;
+    _gateLoadedOnce = false;
+    _visitors.clear();
+    _visitorsLoading = false;
+    _visitorsError = null;
+    _visitorsLoadedOnce = false;
+    _tenants.clear();
+    _tenantsLoading = false;
+    _tenantsLoadedOnce = false;
+    _tenantsError = null;
+    _contracts.clear();
+    _contractsLoading = false;
+    _contractsError = null;
+    _contractsLoadedOnce = false;
     notifyListeners();
   }
 }

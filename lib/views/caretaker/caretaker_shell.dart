@@ -1,0 +1,83 @@
+import 'package:flutter/material.dart';
+
+import '../../controllers/owner_controller.dart';
+import '../../core/widgets/adaptive_shell.dart';
+import '../../core/widgets/role_guard.dart';
+import '../../models/models.dart';
+import '../owner/owner_pages.dart';
+import '../owner/room_monitoring_page.dart';
+import '../shared/shared_views.dart';
+import '../shared/account_management_page.dart';
+
+/// Operational workspace that excludes owner-only financial and analytics UI.
+class CaretakerShell extends StatefulWidget {
+  const CaretakerShell({super.key});
+
+  @override
+  State<CaretakerShell> createState() => _CaretakerShellState();
+}
+
+class _CaretakerShellState extends State<CaretakerShell> {
+  @override
+  void initState() {
+    super.initState();
+    OwnerController.instance.loadRooms();
+    OwnerController.instance.loadPayments();
+    OwnerController.instance.loadCurfewRequests();
+    OwnerController.instance.loadStaffMaintenance();
+  }
+
+  @override
+  Widget build(BuildContext context) => const RoleGuard(
+        allowedRoles: {UserRole.caretaker},
+        child: AdaptiveRoleShell(
+          roleLabel: 'Caretaker',
+          messagePage: OwnerMessagingPage(),
+          destinations: [
+            AppDestination(
+              label: 'Tenants',
+              icon: Icons.groups_outlined,
+              selectedIcon: Icons.groups,
+              page: TenantDirectoryPage(),
+            ),
+            AppDestination(
+              label: 'Rooms',
+              icon: Icons.bed_outlined,
+              selectedIcon: Icons.bed,
+              page: RoomMonitoringPage(),
+            ),
+            AppDestination(
+              label: 'Payments',
+              icon: Icons.payments_outlined,
+              selectedIcon: Icons.payments,
+              page: PaymentVerificationPage(),
+            ),
+            AppDestination(
+              label: 'Maintenance',
+              icon: Icons.build_outlined,
+              selectedIcon: Icons.build,
+              page: MaintenanceManagementPage(),
+            ),
+            AppDestination(
+              label: 'Curfew',
+              icon: Icons.schedule_outlined,
+              selectedIcon: Icons.schedule,
+              page: GeofenceMonitoringPage(),
+              isWorkInProgress: true,
+            ),
+            AppDestination(
+              label: 'Accounts',
+              icon: Icons.manage_accounts_outlined,
+              selectedIcon: Icons.manage_accounts,
+              page: AccountManagementPage(),
+            ),
+            AppDestination(
+              label: 'Profile',
+              icon: Icons.person_outline,
+              selectedIcon: Icons.person,
+              page: ProfilePage(),
+            ),
+          ],
+        ),
+      );
+}

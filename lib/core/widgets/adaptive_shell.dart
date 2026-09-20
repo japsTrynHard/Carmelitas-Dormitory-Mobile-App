@@ -12,31 +12,33 @@ class AppDestination {
     required this.icon,
     required this.selectedIcon,
     required this.page,
+    this.isWorkInProgress = false,
   });
 
   final String label;
   final IconData icon;
   final IconData selectedIcon;
   final Widget page;
+  final bool isWorkInProgress;
 }
 
 class CarmelitaNavScope extends InheritedWidget {
   const CarmelitaNavScope({
     required this.openMenu,
+    this.openMessages,
     required this.selectIndex,
     required super.child,
     super.key,
   });
 
   final VoidCallback openMenu;
+  final VoidCallback? openMessages;
   final ValueChanged<int> selectIndex;
 
   static CarmelitaNavScope? maybeOf(
     BuildContext context,
   ) {
-    return context
-        .dependOnInheritedWidgetOfExactType<
-            CarmelitaNavScope>();
+    return context.dependOnInheritedWidgetOfExactType<CarmelitaNavScope>();
   }
 
   @override
@@ -44,6 +46,7 @@ class CarmelitaNavScope extends InheritedWidget {
     CarmelitaNavScope oldWidget,
   ) {
     return openMenu != oldWidget.openMenu ||
+        openMessages != oldWidget.openMessages ||
         selectIndex != oldWidget.selectIndex;
   }
 }
@@ -52,19 +55,27 @@ class AdaptiveRoleShell extends StatefulWidget {
   const AdaptiveRoleShell({
     required this.destinations,
     required this.roleLabel,
+    required this.messagePage,
     super.key,
   });
 
   final List<AppDestination> destinations;
   final String roleLabel;
+  final Widget messagePage;
+
+  static Widget? activeMessagePage;
+
+  static void openActiveMessages(BuildContext context) {
+    final page = activeMessagePage;
+    if (page == null) return;
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
+  }
 
   @override
-  State<AdaptiveRoleShell> createState() =>
-      _AdaptiveRoleShellState();
+  State<AdaptiveRoleShell> createState() => _AdaptiveRoleShellState();
 }
 
-class _AdaptiveRoleShellState
-    extends State<AdaptiveRoleShell> {
+class _AdaptiveRoleShellState extends State<AdaptiveRoleShell> {
   int index = 0;
 
   void _select(int value) {
@@ -73,14 +84,12 @@ class _AdaptiveRoleShellState
   }
 
   void _openMenu() {
-    final useSidePanel =
-        MediaQuery.sizeOf(context).width >= 780;
+    final useSidePanel = MediaQuery.sizeOf(context).width >= 780;
 
     if (useSidePanel) {
       showDialog<void>(
         context: context,
-        barrierColor:
-            Colors.black.withValues(alpha: .28),
+        barrierColor: Colors.black.withValues(alpha: .28),
         builder: (dialogContext) {
           return Align(
             alignment: Alignment.centerLeft,
@@ -88,8 +97,7 @@ class _AdaptiveRoleShellState
               padding: const EdgeInsets.all(16),
               child: Material(
                 color: Theme.of(context).colorScheme.surface,
-                borderRadius:
-                    const BorderRadius.all(
+                borderRadius: const BorderRadius.all(
                   Radius.circular(28),
                 ),
                 clipBehavior: Clip.antiAlias,
@@ -99,6 +107,10 @@ class _AdaptiveRoleShellState
                     roleLabel: widget.roleLabel,
                     destinations: widget.destinations,
                     currentIndex: index,
+                    onOpenMessages: () {
+                      Navigator.of(dialogContext).pop();
+                      _openMessages();
+                    },
                     onSelect: (value) {
                       Navigator.of(dialogContext).pop();
                       _select(value);
@@ -137,6 +149,10 @@ class _AdaptiveRoleShellState
                   roleLabel: widget.roleLabel,
                   destinations: widget.destinations,
                   currentIndex: index,
+                  onOpenMessages: () {
+                    Navigator.of(sheetContext).pop();
+                    _openMessages();
+                  },
                   onSelect: (value) {
                     Navigator.of(sheetContext).pop();
                     _select(value);
@@ -150,33 +166,24 @@ class _AdaptiveRoleShellState
     );
   }
 
+  void _openMessages() {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => widget.messagePage),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final destination =
-        widget.destinations[index];
+    AdaptiveRoleShell.activeMessagePage = widget.messagePage;
+    final destination = widget.destinations[index];
 
     return CarmelitaNavScope(
       openMenu: _openMenu,
+      openMessages: _openMessages,
       selectIndex: _select,
       child: Scaffold(
         extendBody: true,
-        body: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 260),
-          switchInCurve: Curves.easeOutCubic,
-          switchOutCurve: Curves.easeInCubic,
-          transitionBuilder: (child, animation) {
-            final offset = Tween<Offset>(
-              begin: const Offset(.018, .015),
-              end: Offset.zero,
-            ).animate(animation);
-            return FadeTransition(
-              opacity: animation,
-              child: SlideTransition(
-                position: offset,
-                child: child,
-              ),
-            );
-          },
+        body: RepaintBoundary(
           child: KeyedSubtree(
             key: ValueKey(index),
             child: destination.page,
@@ -191,7 +198,6 @@ class _AdaptiveRoleShellState
     );
   }
 }
-
 
 class _FloatingIslandNavigation extends StatelessWidget {
   const _FloatingIslandNavigation({
@@ -221,18 +227,20 @@ class _FloatingIslandNavigation extends StatelessWidget {
       ),
       child: Center(
         heightFactor: 1,
-        child: ConstrainedBox(
-          constraints: BoxConstraints(maxWidth: maxWidth),
+        child: SizedBox(
+          width: maxWidth,
+          height: 68,
           child: ClipRRect(
             borderRadius: const BorderRadius.all(
               Radius.circular(30),
             ),
             child: BackdropFilter(
               filter: ImageFilter.blur(
-                sigmaX: 18,
-                sigmaY: 18,
+                sigmaX: 7,
+                sigmaY: 7,
               ),
               child: Container(
+                width: maxWidth,
                 height: 68,
                 padding: const EdgeInsets.symmetric(
                   horizontal: 8,
@@ -246,9 +254,8 @@ class _FloatingIslandNavigation extends StatelessWidget {
                     Radius.circular(30),
                   ),
                   border: Border.all(
-                    color: Theme.of(context)
-                        .dividerColor
-                        .withValues(alpha: .90),
+                    color:
+                        Theme.of(context).dividerColor.withValues(alpha: .90),
                   ),
                   boxShadow: [
                     BoxShadow(
@@ -268,15 +275,13 @@ class _FloatingIslandNavigation extends StatelessWidget {
                       final selected = navIndex == selectedIndex;
 
                       return Expanded(
-                        child: Tooltip(
-                          message: item.label,
-                          child: _IslandItem(
-                            label: item.label,
-                            icon: item.icon,
-                            selectedIcon: item.selectedIcon,
-                            selected: selected,
-                            onTap: () => onSelected(navIndex),
-                          ),
+                        child: _IslandItem(
+                          label: item.label,
+                          icon: item.icon,
+                          selectedIcon: item.selectedIcon,
+                          selected: selected,
+                          isWorkInProgress: item.isWorkInProgress,
+                          onTap: () => onSelected(navIndex),
                         ),
                       );
                     },
@@ -298,6 +303,7 @@ class _IslandItem extends StatelessWidget {
     required this.selectedIcon,
     required this.selected,
     required this.onTap,
+    this.isWorkInProgress = false,
   });
 
   final String label;
@@ -305,48 +311,55 @@ class _IslandItem extends StatelessWidget {
   final IconData selectedIcon;
   final bool selected;
   final VoidCallback onTap;
+  final bool isWorkInProgress;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
 
-    return Semantics(
-      button: true,
-      selected: selected,
-      label: label,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 2),
-        child: InkWell(
-          borderRadius: const BorderRadius.all(
-            Radius.circular(22),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 2),
+      child: InkWell(
+        borderRadius: const BorderRadius.all(
+          Radius.circular(22),
+        ),
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+          constraints: const BoxConstraints(
+            minWidth: 48,
+            minHeight: 48,
           ),
-          onTap: onTap,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 220),
-            curve: Curves.easeOutCubic,
-            constraints: const BoxConstraints(
-              minWidth: 48,
-              minHeight: 48,
+          decoration: BoxDecoration(
+            color: selected
+                ? scheme.primary.withValues(alpha: .12)
+                : Colors.transparent,
+            borderRadius: const BorderRadius.all(
+              Radius.circular(22),
             ),
-            decoration: BoxDecoration(
-              color: selected
-                  ? scheme.primary.withValues(alpha: .12)
-                  : Colors.transparent,
-              borderRadius: const BorderRadius.all(
-                Radius.circular(22),
-              ),
-            ),
-            alignment: Alignment.center,
-            child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 160),
-              child: Icon(
-                selected ? selectedIcon : icon,
-                key: ValueKey(selected),
-                size: 23,
-                color: selected
-                    ? scheme.primary
-                    : scheme.onSurface.withValues(alpha: .56),
-              ),
+          ),
+          alignment: Alignment.center,
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 160),
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Icon(
+                  selected ? selectedIcon : icon,
+                  key: ValueKey(selected),
+                  size: 23,
+                  color: selected
+                      ? scheme.primary
+                      : scheme.onSurface.withValues(alpha: .56),
+                ),
+                if (isWorkInProgress)
+                  Positioned(
+                    right: -16,
+                    top: -9,
+                    child: _WipBadge(compact: true),
+                  ),
+              ],
             ),
           ),
         ),
@@ -360,12 +373,14 @@ class _RoleMenu extends StatelessWidget {
     required this.roleLabel,
     required this.destinations,
     required this.currentIndex,
+    required this.onOpenMessages,
     required this.onSelect,
   });
 
   final String roleLabel;
   final List<AppDestination> destinations;
   final int currentIndex;
+  final VoidCallback onOpenMessages;
   final ValueChanged<int> onSelect;
 
   @override
@@ -380,18 +395,15 @@ class _RoleMenu extends StatelessWidget {
         26,
       ),
       child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Center(
             child: Container(
               width: 42,
               height: 4,
               decoration: BoxDecoration(
-                color: Theme.of(context)
-                    .dividerColor,
-                borderRadius:
-                    const BorderRadius.all(
+                color: Theme.of(context).dividerColor,
+                borderRadius: const BorderRadius.all(
                   Radius.circular(999),
                 ),
               ),
@@ -404,15 +416,11 @@ class _RoleMenu extends StatelessWidget {
               const SizedBox(width: 13),
               Expanded(
                 child: Column(
-                  crossAxisAlignment:
-                      CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      "Carmelita's Dormitory",
-                      style: Theme.of(context)
-                          .textTheme
-                          .titleMedium
-                          ?.copyWith(
+                      'CarmeLink',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
                             fontFamily: 'GreatVibes',
                             fontWeight: FontWeight.w600,
                             fontSize: 24,
@@ -421,9 +429,7 @@ class _RoleMenu extends StatelessWidget {
                     const SizedBox(height: 3),
                     Text(
                       roleLabel,
-                      style: Theme.of(context)
-                          .textTheme
-                          .bodySmall,
+                      style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ],
                 ),
@@ -448,22 +454,16 @@ class _RoleMenu extends StatelessWidget {
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
-                      crossAxisAlignment:
-                          CrossAxisAlignment.start,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
                           user.name,
-                          style: Theme.of(context)
-                              .textTheme
-                              .titleMedium,
+                          style: Theme.of(context).textTheme.titleMedium,
                         ),
                         Text(
                           user.email,
-                          overflow:
-                              TextOverflow.ellipsis,
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodySmall,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall,
                         ),
                       ],
                     ),
@@ -475,14 +475,10 @@ class _RoleMenu extends StatelessWidget {
           const SizedBox(height: 18),
           Text(
             'MAIN',
-            style: Theme.of(context)
-                .textTheme
-                .labelSmall
-                ?.copyWith(
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
                   letterSpacing: 1.2,
                   fontWeight: FontWeight.w800,
-                  color:
-                      Theme.of(context).colorScheme.primary,
+                  color: Theme.of(context).colorScheme.primary,
                 ),
           ),
           const SizedBox(height: 8),
@@ -490,46 +486,29 @@ class _RoleMenu extends StatelessWidget {
             destinations.length,
             (navIndex) {
               final item = destinations[navIndex];
-              final selected =
-                  navIndex == currentIndex;
-              return Padding(
-                padding:
-                    const EdgeInsets.only(bottom: 4),
-                child: ListTile(
-                  minTileHeight: 54,
-                  shape:
-                      const RoundedRectangleBorder(
-                    borderRadius:
-                        BorderRadius.all(
-                      Radius.circular(16),
-                    ),
-                  ),
-                  selected: selected,
-                  selectedTileColor:
-                      Theme.of(context)
-                          .colorScheme
-                          .primary
-                          .withValues(alpha: .08),
-                  leading: Icon(
-                    selected
-                        ? item.selectedIcon
-                        : item.icon,
-                  ),
-                  title: Text(
-                    item.label,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  trailing: selected
-                      ? const Icon(
-                          Icons.check_rounded,
-                          size: 19,
-                        )
-                      : null,
-                  onTap: () =>
-                      onSelect(navIndex),
+              final selected = navIndex == currentIndex;
+              return ListTile(
+                selected: selected,
+                minTileHeight: 54,
+                shape: const RoundedRectangleBorder(
+                  borderRadius: BorderRadius.all(Radius.circular(16)),
                 ),
+                tileColor: selected
+                    ? Theme.of(context)
+                        .colorScheme
+                        .primary
+                        .withValues(alpha: .08)
+                    : null,
+                leading: Icon(
+                  selected ? item.selectedIcon : item.icon,
+                  color:
+                      selected ? Theme.of(context).colorScheme.primary : null,
+                ),
+                title: Text(item.label),
+                trailing: item.isWorkInProgress
+                    ? const _WipBadge()
+                    : const Icon(Icons.chevron_right_rounded),
+                onTap: () => onSelect(navIndex),
               );
             },
           ),
@@ -537,17 +516,21 @@ class _RoleMenu extends StatelessWidget {
           const Divider(),
           ListTile(
             minTileHeight: 54,
-            leading:
-                const Icon(Icons.notifications_outlined),
+            leading: const Icon(Icons.chat_bubble_outline),
+            title: const Text('Messages'),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: onOpenMessages,
+          ),
+          ListTile(
+            minTileHeight: 54,
+            leading: const Icon(Icons.notifications_outlined),
             title: const Text('Notifications'),
-            trailing:
-                const Icon(Icons.chevron_right_rounded),
+            trailing: const Icon(Icons.chevron_right_rounded),
             onTap: () {
               Navigator.of(context).pop();
               Navigator.of(context).push(
                 MaterialPageRoute(
-                  builder: (_) =>
-                      const NotificationsPage(),
+                  builder: (_) => const NotificationsPage(),
                 ),
               );
             },
@@ -556,14 +539,12 @@ class _RoleMenu extends StatelessWidget {
             minTileHeight: 54,
             leading: const Icon(Icons.settings_outlined),
             title: const Text('Settings'),
-            trailing:
-                const Icon(Icons.chevron_right_rounded),
+            trailing: const Icon(Icons.chevron_right_rounded),
             onTap: () {
               Navigator.of(context).pop();
               Navigator.of(context).push(
                 MaterialPageRoute(
-                  builder: (_) =>
-                      const SettingsPage(),
+                  builder: (_) => const SettingsPage(),
                 ),
               );
             },
@@ -572,4 +553,31 @@ class _RoleMenu extends StatelessWidget {
       ),
     );
   }
+}
+
+class _WipBadge extends StatelessWidget {
+  const _WipBadge({this.compact = false});
+
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: EdgeInsets.symmetric(
+          horizontal: compact ? 3 : 7,
+          vertical: compact ? 1 : 3,
+        ),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.tertiaryContainer,
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Text(
+          'WIP',
+          style: TextStyle(
+            fontSize: compact ? 7 : 10,
+            fontWeight: FontWeight.w900,
+            letterSpacing: .3,
+            color: Theme.of(context).colorScheme.onTertiaryContainer,
+          ),
+        ),
+      );
 }

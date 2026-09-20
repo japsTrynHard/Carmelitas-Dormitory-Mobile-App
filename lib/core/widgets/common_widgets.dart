@@ -1,10 +1,79 @@
 import 'package:flutter/material.dart';
 
+import '../../controllers/session_controller.dart';
+import '../../models/models.dart';
 import '../constants/app_assets.dart';
 import '../constants/app_colors.dart';
 import '../responsive/breakpoints.dart';
 import '../theme/app_theme.dart';
 import 'adaptive_shell.dart';
+
+Color mutedAccentForIcon(BuildContext context, IconData icon) {
+  if (icon == Icons.payments_outlined ||
+      icon == Icons.receipt_long_outlined ||
+      icon == Icons.account_balance_wallet_outlined) {
+    return const Color(0xFFAA8A45);
+  }
+  if (icon == Icons.warning_amber_outlined ||
+      icon == Icons.priority_high_rounded ||
+      icon == Icons.emergency_outlined) {
+    return const Color(0xFFAA6870);
+  }
+  if (icon == Icons.build_outlined ||
+      icon == Icons.handyman_outlined ||
+      icon == Icons.tune_outlined) {
+    return const Color(0xFFB47A52);
+  }
+  if (icon == Icons.shield_outlined ||
+      icon == Icons.schedule_outlined ||
+      icon == Icons.gavel_outlined) {
+    return const Color(0xFF7D70A0);
+  }
+  if (icon == Icons.person_outline ||
+      icon == Icons.groups_outlined ||
+      icon == Icons.bed_outlined ||
+      icon == Icons.home_outlined) {
+    return const Color(0xFF56886B);
+  }
+  if (icon == Icons.sensor_door_outlined ||
+      icon == Icons.videocam_outlined ||
+      icon == Icons.memory_outlined ||
+      icon == Icons.timeline_outlined) {
+    return const Color(0xFF568F8E);
+  }
+  return const Color(0xFF627FA8);
+}
+
+class MessageDeliveryMeta extends StatelessWidget {
+  const MessageDeliveryMeta({
+    required this.message,
+    required this.isMine,
+    super.key,
+  });
+
+  final ChatMessage message;
+  final bool isMine;
+
+  @override
+  Widget build(BuildContext context) {
+    final style = Theme.of(context).textTheme.bodySmall;
+    if (!isMine) return Text(timeText(message.sentAt), style: style);
+    final read = message.isRead && message.readAt != null;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text('${timeText(message.sentAt)} • ', style: style),
+        Icon(
+          read ? Icons.done_all_rounded : Icons.done_rounded,
+          size: 14,
+          color: read ? Theme.of(context).colorScheme.primary : style?.color,
+        ),
+        const SizedBox(width: 3),
+        Text(read ? 'Read' : 'Sent', style: style),
+      ],
+    );
+  }
+}
 
 class CarmelitaLogo extends StatelessWidget {
   const CarmelitaLogo({
@@ -16,18 +85,214 @@ class CarmelitaLogo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: const BoxDecoration(color: Colors.white),
-      child: Padding(
-        padding: const EdgeInsets.all(5),
-        child: Image.asset(
-          AppAssets.logo,
-          height: height,
-          fit: BoxFit.contain,
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(18),
+      child: DecoratedBox(
+        decoration: const BoxDecoration(color: Colors.white),
+        child: Padding(
+          padding: const EdgeInsets.all(5),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(13),
+            child: Image.asset(
+              AppAssets.logo,
+              height: height,
+              fit: BoxFit.contain,
+            ),
+          ),
         ),
       ),
     );
   }
+}
+
+class MutedDashboardItem {
+  const MutedDashboardItem(
+      {required this.label,
+      required this.value,
+      required this.detail,
+      required this.icon,
+      required this.color,
+      this.onTap});
+  final String label;
+  final String value;
+  final String detail;
+  final IconData icon;
+  final Color color;
+  final VoidCallback? onTap;
+}
+
+class MutedDashboardGrid extends StatelessWidget {
+  const MutedDashboardGrid(
+      {required this.items,
+      this.compact = false,
+      this.denseFourColumn = false,
+      super.key});
+  final List<MutedDashboardItem> items;
+  final bool compact;
+  final bool denseFourColumn;
+
+  @override
+  Widget build(BuildContext context) =>
+      LayoutBuilder(builder: (context, constraints) {
+        final textScale = MediaQuery.textScalerOf(context).scale(1);
+        final scaledText = textScale > 1.15;
+        final columns = denseFourColumn
+            ? constraints.maxWidth < 400
+                ? items.length.clamp(1, 2)
+                : items.length.clamp(1, 4)
+            : constraints.maxWidth < 600
+                ? (constraints.maxWidth < 320 ? 1 : 2)
+                : items.length.clamp(2, 4);
+        return GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: items.length,
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: columns,
+            crossAxisSpacing: 8,
+            mainAxisSpacing: 8,
+            childAspectRatio: compact
+                ? (constraints.maxWidth < 500
+                    ? (scaledText ? 1.18 : 1.45)
+                    : (scaledText ? 1.4 : 1.7))
+                : denseFourColumn && constraints.maxWidth < 500
+                    ? (scaledText ? .54 : .65)
+                    : constraints.maxWidth < 500
+                        ? (scaledText ? .86 : 1.05)
+                        : (scaledText ? .96 : 1.15),
+          ),
+          itemBuilder: (context, index) {
+            final item = items[index];
+            return InkWell(
+              onTap: item.onTap,
+              borderRadius: BorderRadius.circular(16),
+              child: Container(
+                padding: EdgeInsets.all(compact ? 8 : 10),
+                decoration: BoxDecoration(
+                  color: item.color.withValues(alpha: .035),
+                  border: Border.all(color: item.color.withValues(alpha: .10)),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                          padding: EdgeInsets.all(compact ? 5 : 7),
+                          decoration: BoxDecoration(
+                              color: item.color.withValues(alpha: .09),
+                              borderRadius: BorderRadius.circular(9)),
+                          child: Icon(item.icon,
+                              color: item.color, size: compact ? 18 : 19)),
+                      const Spacer(),
+                      Text(item.value,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleLarge
+                              ?.copyWith(
+                                  color: item.color,
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: compact ? 19 : 17)),
+                      const SizedBox(height: 2),
+                      Text(item.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleSmall
+                              ?.copyWith(
+                                  fontSize: compact ? 12 : 10,
+                                  fontWeight: FontWeight.w800)),
+                      Text(item.detail,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodySmall
+                              ?.copyWith(fontSize: compact ? 11 : 9)),
+                    ]),
+              ),
+            );
+          },
+        );
+      });
+}
+
+class MutedActionItem {
+  const MutedActionItem(
+      {required this.label,
+      required this.detail,
+      required this.icon,
+      required this.color,
+      required this.onTap});
+  final String label;
+  final String detail;
+  final IconData icon;
+  final Color color;
+  final VoidCallback onTap;
+}
+
+class MutedActionGrid extends StatelessWidget {
+  const MutedActionGrid({required this.items, super.key});
+  final List<MutedActionItem> items;
+
+  @override
+  Widget build(BuildContext context) =>
+      LayoutBuilder(builder: (context, constraints) {
+        final scaledText = MediaQuery.textScalerOf(context).scale(1) > 1.15;
+        final columns = constraints.maxWidth >= 900 ? 3 : 2;
+        return GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: items.length,
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: columns,
+              crossAxisSpacing: 10,
+              mainAxisSpacing: 10,
+              childAspectRatio: constraints.maxWidth < 520
+                  ? (scaledText ? 1.8 : 2.15)
+                  : (scaledText ? 2.35 : 2.8)),
+          itemBuilder: (context, index) {
+            final item = items[index];
+            return CarmelitaCard(
+              onTap: item.onTap,
+              padding: const EdgeInsets.all(10),
+              child: Row(children: [
+                Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                        color: item.color.withValues(alpha: .075),
+                        borderRadius: BorderRadius.circular(11)),
+                    child: Icon(item.icon, color: item.color, size: 21)),
+                const SizedBox(width: 9),
+                Expanded(
+                    child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                      Text(item.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w800, fontSize: 13)),
+                      const SizedBox(height: 2),
+                      Text(item.detail,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodySmall
+                              ?.copyWith(fontSize: 10)),
+                    ])),
+                Icon(Icons.chevron_right_rounded,
+                    size: 18, color: Theme.of(context).colorScheme.outline),
+              ]),
+            );
+          },
+        );
+      });
 }
 
 class PageFrame extends StatelessWidget {
@@ -39,6 +304,7 @@ class PageFrame extends StatelessWidget {
     this.floatingActionButton,
     this.heroTitle,
     this.useScriptTitle = true,
+    this.onRefresh,
     super.key,
   });
 
@@ -49,107 +315,281 @@ class PageFrame extends StatelessWidget {
   final Widget child;
   final List<Widget>? actions;
   final Widget? floatingActionButton;
+  final Future<void> Function()? onRefresh;
 
   @override
   Widget build(BuildContext context) {
     final navScope = CarmelitaNavScope.maybeOf(context);
     final canPop = Navigator.of(context).canPop();
     final extraBottom = navScope == null ? 24.0 : 132.0;
+    final currentRole = SessionController.instance.currentUser?.role;
+    final isStaff =
+        currentRole == UserRole.owner || currentRole == UserRole.caretaker;
+    final ownerOperationalPage = isStaff && title != 'Dashboard';
+    final canShowNotifications =
+        SessionController.instance.currentUser != null &&
+            title.toLowerCase() != 'notifications';
+    final canShowMessages = (navScope != null ||
+            (isStaff && AdaptiveRoleShell.activeMessagePage != null)) &&
+        title.toLowerCase() != 'messages';
+    final ownerSection = isStaff &&
+        title != 'Dashboard' &&
+        title != 'Operations' &&
+        title != 'Profile' &&
+        title != 'Notifications';
+    final pageChild = ownerSection
+        ? Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                currentRole == UserRole.owner ? 'OWNER' : 'CARETAKER',
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 13,
+                      letterSpacing: 1.25,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+              ),
+              const SizedBox(height: 10),
+              if (subtitle != null) ...[
+                Text(subtitle!, style: Theme.of(context).textTheme.bodyMedium),
+                const SizedBox(height: 14),
+              ],
+              child,
+            ],
+          )
+        : child;
 
-    return Scaffold(
-      extendBody: navScope != null,
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      appBar: AppBar(
-        toolbarHeight: 72,
-        leadingWidth: 68,
-        leading: Padding(
-          padding: const EdgeInsets.only(left: 12),
-          child: IconButton(
-            tooltip: navScope != null
-                ? 'Menu'
-                : canPop
-                    ? 'Back'
-                    : 'Menu',
-            onPressed: () {
-              if (navScope != null) {
-                navScope.openMenu();
-              } else if (canPop) {
-                Navigator.of(context).maybePop();
-              }
-            },
-            icon: Icon(
-              navScope != null
-                  ? Icons.menu_rounded
-                  : Icons.arrow_back_ios_new_rounded,
+    void openNotifications() => Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const _GlobalNotificationsPage()),
+        );
+
+    void openMessages() {
+      if (navScope?.openMessages != null) {
+        navScope!.openMessages!.call();
+      } else {
+        AdaptiveRoleShell.openActiveMessages(context);
+      }
+    }
+
+    final messageButton = IconButton(
+      tooltip: 'Messages',
+      onPressed: openMessages,
+      icon: const Icon(Icons.chat_bubble_outline),
+    );
+
+    final notificationButton = IconButton(
+      tooltip: 'Notifications',
+      onPressed: openNotifications,
+      icon: const Icon(Icons.notifications_outlined),
+    );
+
+    Widget? resolvedFloatingActionButton = floatingActionButton;
+    if (resolvedFloatingActionButton != null && navScope != null) {
+      resolvedFloatingActionButton = Padding(
+        padding: const EdgeInsets.only(bottom: 82),
+        child: resolvedFloatingActionButton,
+      );
+    }
+
+    return _PageEntrance(
+      enabled: !canPop,
+      child: Scaffold(
+        extendBody: navScope != null,
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+        appBar: AppBar(
+          toolbarHeight: 72,
+          leadingWidth: 68,
+          leading: Padding(
+            padding: const EdgeInsets.only(left: 12),
+            child: IconButton(
+              tooltip: navScope != null
+                  ? 'Menu'
+                  : canPop
+                      ? 'Back'
+                      : 'Menu',
+              onPressed: () {
+                if (navScope != null) {
+                  navScope.openMenu();
+                } else if (canPop) {
+                  Navigator.of(context).maybePop();
+                }
+              },
+              icon: Icon(
+                navScope != null
+                    ? Icons.menu_rounded
+                    : Icons.arrow_back_ios_new_rounded,
+              ),
             ),
           ),
-        ),
-        titleSpacing: 4,
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              heroTitle ?? title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontFamily:
-                        useScriptTitle ? 'GreatVibes' : null,
-                    fontSize: useScriptTitle ? 30 : null,
-                    fontWeight:
-                        useScriptTitle ? FontWeight.w600 : FontWeight.w700,
-                  ),
-            ),
-            if (subtitle != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 2),
-                child: Text(
-                  subtitle!,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
+          titleSpacing: 4,
+          title: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                heroTitle ?? title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontFamily: useScriptTitle ? 'GreatVibes' : null,
+                      fontSize: useScriptTitle ? 30 : null,
+                      fontWeight:
+                          useScriptTitle ? FontWeight.w600 : FontWeight.w700,
+                    ),
               ),
+              if (subtitle != null && !ownerOperationalPage)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text(
+                    subtitle!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+            ],
+          ),
+          actions: [
+            ...?actions,
+            if (canShowMessages) messageButton,
+            if (canShowNotifications) notificationButton,
+            const SizedBox(width: 10),
           ],
         ),
-        actions: [
-          ...?actions,
-          const SizedBox(width: 10),
-        ],
-      ),
-      floatingActionButton: floatingActionButton,
-      body: SafeArea(
-        top: false,
-        child: SingleChildScrollView(
-          keyboardDismissBehavior:
-              ScrollViewKeyboardDismissBehavior.onDrag,
-          physics: const BouncingScrollPhysics(
-            parent: AlwaysScrollableScrollPhysics(),
-          ),
-          child: ResponsiveContent(
-            padding: EdgeInsets.fromLTRB(
-              AppBreakpoints.horizontalPadding(context),
-              6,
-              AppBreakpoints.horizontalPadding(context),
-              extraBottom,
-            ),
-            child: TweenAnimationBuilder<double>(
-              tween: Tween<double>(begin: .975, end: 1),
-              duration: const Duration(milliseconds: 280),
-              curve: Curves.easeOutCubic,
-              builder: (context, value, page) {
-                return Opacity(
-                  opacity: ((value - .975) / .025)
-                      .clamp(0.0, 1.0),
-                  child: Transform.translate(
-                    offset: Offset(0, 12 * (1 - value)),
-                    child: page,
+        floatingActionButton: resolvedFloatingActionButton,
+        body: SafeArea(
+          top: false,
+          child: onRefresh != null
+              ? RefreshIndicator(
+                  onRefresh: onRefresh!,
+                  child: SingleChildScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    keyboardDismissBehavior:
+                        ScrollViewKeyboardDismissBehavior.onDrag,
+                    child: ResponsiveContent(
+                      padding: EdgeInsets.fromLTRB(
+                        AppBreakpoints.horizontalPadding(context),
+                        6,
+                        AppBreakpoints.horizontalPadding(context),
+                        extraBottom,
+                      ),
+                      child: RepaintBoundary(child: pageChild),
+                    ),
                   ),
-                );
-              },
-              child: child,
-            ),
-          ),
+                )
+              : SingleChildScrollView(
+                  keyboardDismissBehavior:
+                      ScrollViewKeyboardDismissBehavior.onDrag,
+                  child: ResponsiveContent(
+                    padding: EdgeInsets.fromLTRB(
+                      AppBreakpoints.horizontalPadding(context),
+                      6,
+                      AppBreakpoints.horizontalPadding(context),
+                      extraBottom,
+                    ),
+                    child: RepaintBoundary(child: pageChild),
+                  ),
+                ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PageEntrance extends StatefulWidget {
+  const _PageEntrance({required this.child, this.enabled = true});
+  final Widget child;
+  final bool enabled;
+
+  @override
+  State<_PageEntrance> createState() => _PageEntranceState();
+}
+
+class _PageEntranceState extends State<_PageEntrance>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController controller;
+  late final Animation<double> opacity;
+  late final Animation<Offset> position;
+
+  @override
+  void initState() {
+    super.initState();
+    controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 420),
+    );
+    final curve = CurvedAnimation(
+      parent: controller,
+      curve: Curves.easeOutCubic,
+    );
+    opacity = CurvedAnimation(
+      parent: controller,
+      curve: const Interval(0, .72, curve: Curves.easeOut),
+    );
+    position = Tween<Offset>(
+      begin: const Offset(0, .055),
+      end: Offset.zero,
+    ).animate(curve);
+    controller.forward();
+  }
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!widget.enabled || MediaQuery.disableAnimationsOf(context)) {
+      return widget.child;
+    }
+    return FadeTransition(
+      opacity: opacity,
+      child: SlideTransition(
+        position: position,
+        child: widget.child,
+      ),
+    );
+  }
+}
+
+class _GlobalNotificationsPage extends StatelessWidget {
+  const _GlobalNotificationsPage();
+
+  @override
+  Widget build(BuildContext context) {
+    final ranked = <AppNotification>[];
+    if (ranked.isEmpty) {
+      return const PageFrame(
+        title: 'Notifications',
+        subtitle: 'Persistent notifications are not connected yet',
+        child: EmptyState(
+          icon: Icons.notifications_none_rounded,
+          title: 'No notification service',
+          message: 'Updates remain available in their source modules.',
+        ),
+      );
+    }
+    return PageFrame(
+      title: 'Notifications',
+      subtitle: 'Updates ranked by urgency',
+      child: CarmelitaCard(
+        child: Column(
+          children: ranked
+              .map((notification) => TimelineTile(
+                    icon: notification.type == 'Payment'
+                        ? Icons.payments_outlined
+                        : (notification.type == 'Gate' ||
+                                notification.type == 'Geofence' ||
+                                notification.type == 'Presence')
+                            ? Icons.location_on_outlined
+                            : Icons.build_outlined,
+                    title: notification.title,
+                    subtitle:
+                        '${notification.body}\n${shortDate(notification.time)} • ${timeText(notification.time)}',
+                  ))
+              .toList(),
         ),
       ),
     );
@@ -159,7 +599,7 @@ class PageFrame extends StatelessWidget {
 class CarmelitaCard extends StatelessWidget {
   const CarmelitaCard({
     required this.child,
-    this.padding = const EdgeInsets.all(18),
+    this.padding = const EdgeInsets.all(16),
     this.onTap,
     this.emphasis = false,
     super.key,
@@ -172,8 +612,7 @@ class CarmelitaCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final ext = Theme.of(context)
-        .extension<CarmelitaThemeExtension>();
+    final ext = Theme.of(context).extension<CarmelitaThemeExtension>();
     final scheme = Theme.of(context).colorScheme;
 
     final content = AnimatedContainer(
@@ -181,19 +620,17 @@ class CarmelitaCard extends StatelessWidget {
       curve: Curves.easeOutCubic,
       padding: padding,
       decoration: BoxDecoration(
-        color: emphasis
-            ? scheme.primary.withValues(alpha: .075)
-            : scheme.surface,
+        color:
+            emphasis ? scheme.primary.withValues(alpha: .075) : scheme.surface,
         borderRadius: const BorderRadius.all(
-          Radius.circular(22),
+          Radius.circular(20),
         ),
         border: Border.all(
           color: emphasis
               ? scheme.primary.withValues(alpha: .22)
               : ext?.border ?? Theme.of(context).dividerColor,
         ),
-        boxShadow: Theme.of(context).brightness ==
-                Brightness.light
+        boxShadow: Theme.of(context).brightness == Brightness.light
             ? [
                 BoxShadow(
                   color: Colors.black.withValues(alpha: .032),
@@ -208,25 +645,18 @@ class CarmelitaCard extends StatelessWidget {
 
     if (onTap == null) return content;
 
-    return TweenAnimationBuilder<double>(
-      tween: Tween<double>(begin: 1, end: 1),
-      duration: const Duration(milliseconds: 120),
-      builder: (context, value, _) {
-        return Material(
-          color: Colors.transparent,
-          child: InkWell(
-            borderRadius: const BorderRadius.all(
-              Radius.circular(22),
-            ),
-            onTap: onTap,
-            child: content,
-          ),
-        );
-      },
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: const BorderRadius.all(
+          Radius.circular(20),
+        ),
+        onTap: onTap,
+        child: content,
+      ),
     );
   }
 }
-
 
 class ElegantHeader extends StatelessWidget {
   const ElegantHeader({
@@ -265,8 +695,7 @@ class ElegantHeader extends StatelessWidget {
           style: Theme.of(context).textTheme.displaySmall?.copyWith(
                 fontFamily: useScriptTitle ? 'GreatVibes' : null,
                 fontSize: useScriptTitle ? titleSize + 10 : titleSize,
-                fontWeight:
-                    useScriptTitle ? FontWeight.w600 : FontWeight.w700,
+                fontWeight: useScriptTitle ? FontWeight.w600 : FontWeight.w700,
                 height: useScriptTitle ? 1.15 : null,
                 letterSpacing: useScriptTitle ? 0 : null,
               ),
@@ -343,15 +772,13 @@ class SectionTitle extends StatelessWidget {
             children: [
               Text(
                 title,
-                style:
-                    Theme.of(context).textTheme.titleLarge,
+                style: Theme.of(context).textTheme.titleLarge,
               ),
               if (subtitle != null) ...[
                 const SizedBox(height: 3),
                 Text(
                   subtitle!,
-                  style:
-                      Theme.of(context).textTheme.bodySmall,
+                  style: Theme.of(context).textTheme.bodySmall,
                 ),
               ],
             ],
@@ -362,7 +789,6 @@ class SectionTitle extends StatelessWidget {
     );
   }
 }
-
 
 class StatusPill extends StatelessWidget {
   const StatusPill(
@@ -446,7 +872,6 @@ class StatusPill extends StatelessWidget {
   }
 }
 
-
 class MetricCard extends StatelessWidget {
   const MetricCard({
     required this.label,
@@ -455,6 +880,7 @@ class MetricCard extends StatelessWidget {
     this.detail,
     this.onTap,
     this.highlight = false,
+    this.color,
     super.key,
   });
 
@@ -464,26 +890,25 @@ class MetricCard extends StatelessWidget {
   final String? detail;
   final VoidCallback? onTap;
   final bool highlight;
+  final Color? color;
 
   @override
   Widget build(BuildContext context) {
     return CarmelitaCard(
       onTap: onTap,
+      padding: const EdgeInsets.all(14),
       emphasis: highlight,
-      padding: const EdgeInsets.all(15),
       child: LayoutBuilder(
         builder: (context, constraints) {
           final veryNarrow = constraints.maxWidth < 145;
           final iconSize = veryNarrow ? 40.0 : 44.0;
 
+          final accent = color ?? mutedAccentForIcon(context, icon);
           final iconBox = Container(
             width: iconSize,
             height: iconSize,
             decoration: BoxDecoration(
-              color: Theme.of(context)
-                  .colorScheme
-                  .primary
-                  .withValues(alpha: .09),
+              color: accent.withValues(alpha: .075),
               borderRadius: const BorderRadius.all(
                 Radius.circular(14),
               ),
@@ -492,7 +917,7 @@ class MetricCard extends StatelessWidget {
             child: Icon(
               icon,
               size: veryNarrow ? 19 : 21,
-              color: Theme.of(context).colorScheme.primary,
+              color: accent,
             ),
           );
 
@@ -515,10 +940,7 @@ class MetricCard extends StatelessWidget {
                 child: Text(
                   value,
                   maxLines: 1,
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleLarge
-                      ?.copyWith(
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
                         fontSize: veryNarrow ? 18 : 21,
                         fontWeight: FontWeight.w800,
                       ),
@@ -590,21 +1012,23 @@ class MetricCard extends StatelessWidget {
   }
 }
 
-
 class QuickAction extends StatelessWidget {
   const QuickAction({
     required this.label,
     required this.icon,
     required this.onTap,
+    this.color,
     super.key,
   });
 
   final String label;
   final IconData icon;
   final VoidCallback onTap;
+  final Color? color;
 
   @override
   Widget build(BuildContext context) {
+    final accent = color ?? mutedAccentForIcon(context, icon);
     return CarmelitaCard(
       onTap: onTap,
       padding: const EdgeInsets.symmetric(
@@ -619,10 +1043,7 @@ class QuickAction extends StatelessWidget {
             width: 40,
             height: 40,
             decoration: BoxDecoration(
-              color: Theme.of(context)
-                  .colorScheme
-                  .primary
-                  .withValues(alpha: .09),
+              color: accent.withValues(alpha: .075),
               borderRadius: const BorderRadius.all(
                 Radius.circular(14),
               ),
@@ -631,7 +1052,7 @@ class QuickAction extends StatelessWidget {
             child: Icon(
               icon,
               size: 20,
-              color: Theme.of(context).colorScheme.primary,
+              color: accent,
             ),
           ),
           const SizedBox(height: 9),
@@ -651,7 +1072,6 @@ class QuickAction extends StatelessWidget {
   }
 }
 
-
 class AdaptiveGrid extends StatelessWidget {
   const AdaptiveGrid({
     required this.children,
@@ -667,8 +1087,7 @@ class AdaptiveGrid extends StatelessWidget {
     if (width < 600) return 2;
 
     const spacing = 12.0;
-    final estimated =
-        ((width + spacing) / (minTileWidth + spacing)).floor();
+    final estimated = ((width + spacing) / (minTileWidth + spacing)).floor();
     return estimated.clamp(2, 4);
   }
 
@@ -680,8 +1099,7 @@ class AdaptiveGrid extends StatelessWidget {
       builder: (context, constraints) {
         final columns = _columnsFor(constraints.maxWidth);
         final itemWidth =
-            (constraints.maxWidth - (spacing * (columns - 1))) /
-                columns;
+            (constraints.maxWidth - (spacing * (columns - 1))) / columns;
 
         return Wrap(
           spacing: spacing,
@@ -700,7 +1118,6 @@ class AdaptiveGrid extends StatelessWidget {
     );
   }
 }
-
 
 class ActionGrid extends StatelessWidget {
   const ActionGrid({
@@ -722,8 +1139,7 @@ class ActionGrid extends StatelessWidget {
             : width < 700
                 ? 4
                 : 6;
-        final itemWidth =
-            (width - (spacing * (columns - 1))) / columns;
+        final itemWidth = (width - (spacing * (columns - 1))) / columns;
 
         return Wrap(
           spacing: spacing,
@@ -763,8 +1179,7 @@ class PhotoHero extends StatelessWidget {
         : height.clamp(220, 320).toDouble();
 
     return ClipRRect(
-      borderRadius:
-          const BorderRadius.all(Radius.circular(26)),
+      borderRadius: const BorderRadius.all(Radius.circular(26)),
       child: SizedBox(
         height: effectiveHeight,
         child: Stack(
@@ -788,15 +1203,11 @@ class PhotoHero extends StatelessWidget {
               right: 20,
               bottom: 18,
               child: Column(
-                crossAxisAlignment:
-                    CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     title,
-                    style: Theme.of(context)
-                        .textTheme
-                        .headlineMedium
-                        ?.copyWith(
+                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                           color: Colors.white,
                           fontWeight: FontWeight.w700,
                         ),
@@ -820,7 +1231,6 @@ class PhotoHero extends StatelessWidget {
   }
 }
 
-
 class AttentionCard extends StatelessWidget {
   const AttentionCard({
     required this.icon,
@@ -828,6 +1238,7 @@ class AttentionCard extends StatelessWidget {
     required this.subtitle,
     this.status,
     this.onTap,
+    this.compact = false,
     super.key,
   });
 
@@ -836,31 +1247,34 @@ class AttentionCard extends StatelessWidget {
   final String subtitle;
   final String? status;
   final VoidCallback? onTap;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
+    final accent = mutedAccentForIcon(context, icon);
     return CarmelitaCard(
       onTap: onTap,
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 10 : 14,
+        vertical: compact ? 9 : 14,
+      ),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final compact = constraints.maxWidth < 320;
+          final stackStatus = constraints.maxWidth < 320;
+          final iconSize = compact ? 36.0 : 44.0;
 
           final leading = Container(
-            width: 44,
-            height: 44,
+            width: iconSize,
+            height: iconSize,
             decoration: BoxDecoration(
-              color: Theme.of(context)
-                  .colorScheme
-                  .primary
-                  .withValues(alpha: .09),
-              borderRadius: const BorderRadius.all(
-                Radius.circular(15),
-              ),
+              color: accent.withValues(alpha: .075),
+              borderRadius: BorderRadius.circular(compact ? 12 : 15),
             ),
             alignment: Alignment.center,
             child: Icon(
               icon,
-              color: Theme.of(context).colorScheme.primary,
+              color: accent,
+              size: compact ? 19 : 24,
             ),
           );
 
@@ -870,28 +1284,38 @@ class AttentionCard extends StatelessWidget {
             children: [
               Text(
                 title,
-                style: Theme.of(context).textTheme.titleMedium,
+                style: compact
+                    ? Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                        )
+                    : Theme.of(context).textTheme.titleMedium,
               ),
-              const SizedBox(height: 4),
+              SizedBox(height: compact ? 2 : 4),
               Text(
                 subtitle,
-                style: Theme.of(context).textTheme.bodyMedium,
+                style: compact
+                    ? Theme.of(context).textTheme.bodySmall?.copyWith(
+                          fontSize: 11,
+                          height: 1.25,
+                        )
+                    : Theme.of(context).textTheme.bodyMedium,
               ),
             ],
           );
 
-          if (compact && status != null) {
+          if (stackStatus && status != null) {
             return Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 leading,
-                const SizedBox(width: 12),
+                SizedBox(width: compact ? 9 : 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       copy,
-                      const SizedBox(height: 10),
+                      SizedBox(height: compact ? 7 : 10),
                       StatusPill(status!),
                     ],
                   ),
@@ -904,10 +1328,10 @@ class AttentionCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               leading,
-              const SizedBox(width: 13),
+              SizedBox(width: compact ? 9 : 13),
               Expanded(child: copy),
               if (status != null) ...[
-                const SizedBox(width: 10),
+                SizedBox(width: compact ? 7 : 10),
                 StatusPill(status!),
               ] else if (onTap != null) ...[
                 const SizedBox(width: 8),
@@ -927,6 +1351,100 @@ class AttentionCard extends StatelessWidget {
   }
 }
 
+class ConversationListCard extends StatelessWidget {
+  const ConversationListCard({
+    required this.name,
+    required this.role,
+    this.lastMessage,
+    this.lastMessageText,
+    this.lastMessageTime,
+    this.unreadCount = 0,
+    required this.onTap,
+    super.key,
+  });
+
+  final String name;
+  final String role;
+  final ChatMessage? lastMessage;
+  final String? lastMessageText;
+  final DateTime? lastMessageTime;
+  final int unreadCount;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final previewText =
+        lastMessage?.body ?? lastMessageText ?? 'No messages yet';
+    final previewTime = lastMessage?.sentAt ?? lastMessageTime;
+
+    return CarmelitaCard(
+      onTap: onTap,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      child: ListTile(
+        dense: true,
+        contentPadding: EdgeInsets.zero,
+        leading: CircleAvatar(
+          radius: 22,
+          backgroundColor:
+              Theme.of(context).colorScheme.primary.withValues(alpha: .10),
+          foregroundColor: Theme.of(context).colorScheme.primary,
+          child: Text(
+            name.isNotEmpty ? name.substring(0, 1).toUpperCase() : '?',
+            style: const TextStyle(fontWeight: FontWeight.w800),
+          ),
+        ),
+        title: Row(
+          children: [
+            Expanded(
+              child: Text(
+                name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.w800),
+              ),
+            ),
+            if (previewTime != null) ...[
+              const SizedBox(width: 8),
+              Text(
+                timeText(previewTime),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ],
+        ),
+        subtitle: Text(
+          '$role • $previewText',
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (unreadCount > 0)
+              Container(
+                margin: const EdgeInsets.only(right: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primary,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  unreadCount.toString(),
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onPrimary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            const Icon(Icons.chevron_right_rounded, size: 20),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class InfoRow extends StatelessWidget {
   const InfoRow({
     required this.label,
@@ -941,9 +1459,10 @@ class InfoRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final compact = MediaQuery.sizeOf(context).width < 370;
+    final compact = MediaQuery.sizeOf(context).width < 370 ||
+        MediaQuery.textScalerOf(context).scale(1) > 1.15;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.symmetric(vertical: 6),
       child: compact
           ? Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -954,20 +1473,17 @@ class InfoRow extends StatelessWidget {
                       Icon(
                         icon,
                         size: 18,
-                        color: Theme.of(context)
-                            .colorScheme
-                            .primary,
+                        color: mutedAccentForIcon(context, icon!),
                       ),
                       const SizedBox(width: 8),
                     ],
-                    Text(
-                      label,
-                      style: Theme.of(context)
-                          .textTheme
-                          .bodySmall
-                          ?.copyWith(
-                            fontWeight: FontWeight.w700,
-                          ),
+                    Expanded(
+                      child: Text(
+                        label,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                      ),
                     ),
                   ],
                 ),
@@ -987,8 +1503,7 @@ class InfoRow extends StatelessWidget {
                   Icon(
                     icon,
                     size: 19,
-                    color:
-                        Theme.of(context).colorScheme.primary,
+                    color: mutedAccentForIcon(context, icon!),
                   ),
                   const SizedBox(width: 10),
                 ],
@@ -996,10 +1511,7 @@ class InfoRow extends StatelessWidget {
                   width: 118,
                   child: Text(
                     label,
-                    style: Theme.of(context)
-                        .textTheme
-                        .bodySmall
-                        ?.copyWith(
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           fontWeight: FontWeight.w700,
                         ),
                   ),
@@ -1024,6 +1536,8 @@ class TimelineTile extends StatelessWidget {
     required this.title,
     required this.subtitle,
     this.trailing,
+    this.color,
+    this.compact = true,
     super.key,
   });
 
@@ -1031,36 +1545,44 @@ class TimelineTile extends StatelessWidget {
   final String title;
   final String subtitle;
   final Widget? trailing;
+  final Color? color;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
+    final accent = color ?? mutedAccentForIcon(context, icon);
     return ListTile(
-      contentPadding: const EdgeInsets.symmetric(
-        horizontal: 2,
-        vertical: 3,
+      dense: compact,
+      visualDensity: compact ? const VisualDensity(vertical: -3) : null,
+      minLeadingWidth: compact ? 36 : null,
+      contentPadding: EdgeInsets.symmetric(
+        horizontal: compact ? 0 : 2,
+        vertical: compact ? 0 : 3,
       ),
       leading: Container(
-        width: 42,
-        height: 42,
+        width: compact ? 36 : 42,
+        height: compact ? 36 : 42,
         decoration: BoxDecoration(
-          color: Theme.of(context)
-              .colorScheme
-              .primary
-              .withValues(alpha: .085),
-          borderRadius:
-              const BorderRadius.all(Radius.circular(14)),
+          color: accent.withValues(alpha: .075),
+          borderRadius: const BorderRadius.all(Radius.circular(14)),
         ),
         child: Icon(
           icon,
-          size: 21,
-          color: Theme.of(context).colorScheme.primary,
+          size: compact ? 18 : 21,
+          color: accent,
         ),
       ),
       title: Text(
         title,
-        style: const TextStyle(fontWeight: FontWeight.w700),
+        style: TextStyle(
+          fontWeight: FontWeight.w700,
+          fontSize: compact ? 12.5 : null,
+        ),
       ),
-      subtitle: Text(subtitle),
+      subtitle: Text(
+        subtitle,
+        style: compact ? const TextStyle(fontSize: 11) : null,
+      ),
       trailing: trailing,
     );
   }
@@ -1082,45 +1604,37 @@ class EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final accent = mutedAccentForIcon(context, icon);
     return Center(
       child: Padding(
-        padding:
-            const EdgeInsets.symmetric(vertical: 42),
+        padding: const EdgeInsets.symmetric(vertical: 42),
         child: Column(
           children: [
             Container(
               width: 72,
               height: 72,
               decoration: BoxDecoration(
-                color: Theme.of(context)
-                    .colorScheme
-                    .primary
-                    .withValues(alpha: .08),
+                color: accent.withValues(alpha: .075),
                 shape: BoxShape.circle,
               ),
               child: Icon(
                 icon,
                 size: 34,
-                color:
-                    Theme.of(context).colorScheme.primary,
+                color: accent,
               ),
             ),
             const SizedBox(height: 16),
             Text(
               title,
-              style: Theme.of(context)
-                  .textTheme
-                  .titleLarge,
+              style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: 8),
             ConstrainedBox(
-              constraints:
-                  const BoxConstraints(maxWidth: 420),
+              constraints: const BoxConstraints(maxWidth: 420),
               child: Text(
                 message,
                 textAlign: TextAlign.center,
-                style:
-                    Theme.of(context).textTheme.bodyMedium,
+                style: Theme.of(context).textTheme.bodyMedium,
               ),
             ),
             if (action != null) ...[
@@ -1143,16 +1657,56 @@ void showAppSnackBar(
   );
 }
 
-String money(double value) =>
-    '₱${value.toStringAsFixed(0)}';
+class WorkInProgressNotice extends StatelessWidget {
+  const WorkInProgressNotice({
+    this.message =
+        'Work in progress: curfew and background location behavior is still undergoing physical-device validation.',
+    super.key,
+  });
 
-String shortDate(DateTime value) =>
-    '${value.month}/${value.day}/${value.year}';
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Semantics(
+      label: 'Work in progress notice',
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: scheme.tertiaryContainer.withValues(alpha: .65),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: scheme.tertiary.withValues(alpha: .35)),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.construction_rounded,
+                size: 20, color: scheme.onTertiaryContainer),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                message,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: scheme.onTertiaryContainer,
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String money(double value) => '₱${value.toStringAsFixed(0)}';
+
+String shortDate(DateTime value) => '${value.month}/${value.day}/${value.year}';
 
 String timeText(DateTime value) {
-  final hour = value.hour == 0
-      ? 12
-      : (value.hour > 12 ? value.hour - 12 : value.hour);
+  final hour =
+      value.hour == 0 ? 12 : (value.hour > 12 ? value.hour - 12 : value.hour);
   final minute = value.minute.toString().padLeft(2, '0');
   return '$hour:$minute ${value.hour >= 12 ? 'PM' : 'AM'}';
 }
