@@ -13,6 +13,7 @@ import '../../services/announcement_service.dart';
 import '../../services/geofence_service.dart';
 import '../../services/receipt_ocr_service.dart';
 import '../../services/table_refresh_subscription.dart';
+import '../../services/tripwire_geofence_service.dart';
 import '../widgets/feature_widgets.dart';
 
 class TenantDashboardPage extends StatelessWidget {
@@ -46,6 +47,19 @@ class TenantDashboardPage extends StatelessWidget {
           final maintenance = controller.maintenance.isEmpty
               ? null
               : controller.maintenance.first;
+          final presenceLabel = controller.checkingPresence ||
+                  (controller.gateLoading && !controller.gateLoadedOnce)
+              ? 'Loading'
+              : controller.isInside
+                  ? 'Inside'
+                  : controller.isOutside
+                      ? 'Outside'
+                      : 'Unavailable';
+          final presenceDetail = controller.gateError != null
+              ? 'Presence data unavailable'
+              : controller.lastGateEventAt != null
+                  ? 'Updated ${shortDate(controller.lastGateEventAt!)} at ${timeText(controller.lastGateEventAt!)}'
+                  : 'No presence event recorded';
 
           final roomSubtitle = room != null
               ? 'Room ${room.number} • ${room.bedSpace} • Floor ${room.floor}'
@@ -66,8 +80,8 @@ class TenantDashboardPage extends StatelessWidget {
                 eyebrow: 'Welcome home',
                 title: 'Good afternoon, $firstName.',
                 subtitle: roomSubtitle,
-                trailing: const StatusPill(
-                  'IN',
+                trailing: StatusPill(
+                  presenceLabel,
                   icon: Icons.home_rounded,
                 ),
               ),
@@ -129,12 +143,22 @@ class TenantDashboardPage extends StatelessWidget {
                 items: [
                   MutedDashboardItem(
                     label: 'Amount due',
-                    value: nextDue != null ? money(nextDue.amount) : '₱0.00',
+                    value: nextDue != null
+                        ? money(nextDue.amount)
+                        : controller.paymentsLoadedOnce
+                            ? money(0)
+                            : '—',
                     detail: nextDue != null
                         ? '${nextDue.label} • Due ${shortDate(nextDue.dueDate)}'
                         : (outstanding > 0
                             ? '₱${outstanding.toStringAsFixed(2)} balance'
-                            : 'All bills settled'),
+                            : controller.paymentsLoading
+                                ? 'Loading billing records'
+                                : controller.paymentsError != null
+                                    ? 'Billing data unavailable'
+                                    : controller.paymentsLoadedOnce
+                                        ? 'No outstanding charges'
+                                        : 'No billing data'),
                     icon: Icons.account_balance_wallet_outlined,
                     color: (nextDue != null || outstanding > 0)
                         ? const Color(0xFFAA8A45)
@@ -147,8 +171,8 @@ class TenantDashboardPage extends StatelessWidget {
                   ),
                   MutedDashboardItem(
                     label: 'Curfew',
-                    value: 'Inside',
-                    detail: 'Geofence verified • 8:14 PM',
+                    value: presenceLabel,
+                    detail: presenceDetail,
                     icon: Icons.schedule_outlined,
                     color: const Color(0xFF56886B),
                     onTap: () => Navigator.of(context).push(
@@ -180,12 +204,27 @@ class TenantDashboardPage extends StatelessWidget {
                     ),
                   ),
                 )
-              else
+              else if (controller.paymentsLoadedOnce)
                 AttentionCard(
                   icon: Icons.payments_outlined,
                   title: 'All bills are up to date',
                   subtitle: 'No outstanding dormitory charges at this time.',
                   status: 'Clear',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const PaymentsPage(),
+                    ),
+                  ),
+                )
+              else
+                AttentionCard(
+                  icon: Icons.payments_outlined,
+                  title: controller.paymentsLoading
+                      ? 'Loading billing records'
+                      : 'Billing data unavailable',
+                  subtitle: controller.paymentsError ??
+                      'No billing information has been loaded yet.',
+                  status: controller.paymentsLoading ? 'Loading' : 'No data',
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute(
                       builder: (_) => const PaymentsPage(),
@@ -214,7 +253,11 @@ class TenantDashboardPage extends StatelessWidget {
                       : 'No maintenance reports',
                   subtitle: controller.maintenanceError ??
                       'No submitted maintenance issue needs attention.',
-                  status: controller.maintenanceLoading ? 'Loading' : 'Clear',
+                  status: controller.maintenanceLoading
+                      ? 'Loading'
+                      : controller.maintenanceError != null
+                          ? 'No data'
+                          : 'Clear',
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute(
                       builder: (_) => const MaintenanceReportsPage(),
@@ -4159,6 +4202,8 @@ class TenantPresencePage extends StatefulWidget {
 
 class _TenantPresencePageState extends State<TenantPresencePage> {
   TableRefreshSubscription? _subscription;
+  Map<String, dynamic> _monitoringStatus = const {'registered': false};
+  bool _monitoringStatusLoading = false;
 
   @override
   void initState() {
@@ -4167,6 +4212,7 @@ class _TenantPresencePageState extends State<TenantPresencePage> {
       if (mounted) {
         TenantController.instance.loadCurfewRequests();
         TenantController.instance.loadGateEvents();
+        _loadMonitoringStatus(sync: true);
       }
     });
     _subscription = TableRefreshSubscription(
@@ -4179,6 +4225,20 @@ class _TenantPresencePageState extends State<TenantPresencePage> {
         }
       },
     );
+  }
+
+  Future<void> _loadMonitoringStatus({bool sync = false}) async {
+    if (_monitoringStatusLoading) return;
+    setState(() => _monitoringStatusLoading = true);
+    if (sync) {
+      await TripwireGeofenceService.instance.syncPending();
+    }
+    final status = await TripwireGeofenceService.instance.status();
+    if (!mounted) return;
+    setState(() {
+      _monitoringStatus = status;
+      _monitoringStatusLoading = false;
+    });
   }
 
   @override
@@ -4231,7 +4291,7 @@ class _TenantPresencePageState extends State<TenantPresencePage> {
 
     return PageFrame(
       title: 'Curfew',
-      subtitle: 'Geofence tracking and exception requests',
+      subtitle: 'Automatic boundary crossings and exception requests',
       actions: [
         IconButton(
           tooltip: 'Refresh presence & requests',
@@ -4239,6 +4299,7 @@ class _TenantPresencePageState extends State<TenantPresencePage> {
           onPressed: () {
             controller.loadCurfewRequests(force: true);
             controller.loadGateEvents(force: true);
+            _loadMonitoringStatus(sync: true);
           },
         ),
       ],
@@ -4250,16 +4311,19 @@ class _TenantPresencePageState extends State<TenantPresencePage> {
           final error = controller.curfewError;
 
           final events = controller.gateEvents;
+          final monitoringActive = _monitoringStatus['registered'] == true;
+          final pendingTransitions =
+              (_monitoringStatus['pendingCount'] as num?)?.toInt() ?? 0;
 
           final isInside = controller.isInside;
           final isOutside = controller.isOutside;
           final isUnavailable = controller.isUnavailable;
 
           final statusLabel = isInside
-              ? 'Inside dormitory'
-              : (isOutside ? 'Outside dormitory' : 'Location unavailable');
+              ? 'Last crossing: IN'
+              : (isOutside ? 'Last crossing: OUT' : 'No crossing recorded');
           final statusPillText =
-              isInside ? 'IN' : (isOutside ? 'OUT' : 'UNAVAILABLE');
+              isInside ? 'IN' : (isOutside ? 'OUT' : 'NO EVENT');
           final statusColor = isInside
               ? const Color(0xFF56886B)
               : (isOutside ? const Color(0xFFC77800) : const Color(0xFFB03A2E));
@@ -4269,10 +4333,10 @@ class _TenantPresencePageState extends State<TenantPresencePage> {
                   ? Icons.directions_walk_outlined
                   : Icons.location_disabled_outlined);
           final lastEventText = controller.lastGateEventAt != null
-              ? 'Last ${controller.currentGateStatus}: ${timeText(controller.lastGateEventAt!)} • GPS Geofence confirmed'
+              ? 'Recorded ${shortDate(controller.lastGateEventAt!)} at ${timeText(controller.lastGateEventAt!)} • Automatic GPS tripwire'
               : (isUnavailable
-                  ? 'Location signal or permission unavailable'
-                  : 'Boundary monitoring active');
+                  ? 'No automatic boundary event is available yet'
+                  : 'Automatic tripwire monitoring');
 
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -4304,7 +4368,7 @@ class _TenantPresencePageState extends State<TenantPresencePage> {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               const Text(
-                                'CURRENT STATUS',
+                                'LAST RECORDED CROSSING',
                                 style: TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.w700,
@@ -4365,59 +4429,74 @@ class _TenantPresencePageState extends State<TenantPresencePage> {
                         },
                       ),
                       const SizedBox(height: 14),
-                      SizedBox(
+                      Container(
                         width: double.infinity,
-                        child: FilledButton.icon(
-                          onPressed: controller.checkingPresence
-                              ? null
-                              : () async {
-                                  try {
-                                    final result = await controller
-                                        .performGeofenceCheckIn();
-                                    if (context.mounted) {
-                                      final msg = switch (result.status) {
-                                        'Verified' => result.errorMessage !=
-                                                null
-                                            ? 'Presence confirmed (${result.direction == "IN" ? "Inside" : "Outside"}), but server sync warning: ${result.errorMessage}'
-                                            : 'Presence confirmed: ${result.direction == "IN" ? "Inside perimeter" : "Outside perimeter"}',
-                                        'Flagged' =>
-                                          'Presence check recorded (Flagged: curfew hours active)',
-                                        _ =>
-                                          'Location check failed: ${result.errorMessage ?? (result.failureReason.name != 'none' ? result.failureReason.name : 'Signal error')}',
-                                      };
-                                      showAppSnackBar(context, msg);
-                                    }
-                                  } catch (e) {
-                                    if (context.mounted) {
-                                      showAppSnackBar(
-                                        context,
-                                        'Location check error: $e',
-                                      );
-                                    }
-                                  }
-                                },
-                          icon: controller.checkingPresence
-                              ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: (monitoringActive
+                                  ? const Color(0xFF56886B)
+                                  : const Color(0xFFC77800))
+                              .withValues(alpha: 0.09),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              monitoringActive
+                                  ? Icons.sensors_rounded
+                                  : Icons.sensors_off_rounded,
+                              color: monitoringActive
+                                  ? const Color(0xFF56886B)
+                                  : const Color(0xFFC77800),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    monitoringActive
+                                        ? 'Automatic logging active'
+                                        : 'Automatic logging needs attention',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                    ),
                                   ),
-                                )
-                              : const Icon(Icons.my_location_rounded, size: 18),
-                          label: Text(
-                            controller.checkingPresence
-                                ? 'Checking boundary...'
-                                : 'Verify Location / Check-in',
-                          ),
+                                  Text(
+                                    pendingTransitions > 0
+                                        ? '$pendingTransitions crossing event(s) waiting to sync.'
+                                        : monitoringActive
+                                            ? 'IN and OUT are logged automatically. No check-in button is needed.'
+                                            : 'Enable Always / Allow all the time location access.',
+                                    style:
+                                        Theme.of(context).textTheme.bodySmall,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: 'Refresh monitoring status',
+                              onPressed: _monitoringStatusLoading
+                                  ? null
+                                  : () => _loadMonitoringStatus(sync: true),
+                              icon: _monitoringStatusLoading
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Icon(Icons.refresh_rounded),
+                            ),
+                          ],
                         ),
                       ),
                     ],
                   ),
                 ),
               ),
-              if (isUnavailable) ...[
+              if (!monitoringActive) ...[
                 const SizedBox(height: 12),
                 Container(
                   padding: const EdgeInsets.all(12),
@@ -4439,7 +4518,7 @@ class _TenantPresencePageState extends State<TenantPresencePage> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             const Text(
-                              'Location signal unavailable',
+                              'Automatic logging needs attention',
                               style: TextStyle(
                                 fontWeight: FontWeight.w700,
                                 color: Color(0xFFB03A2E),
@@ -4447,7 +4526,7 @@ class _TenantPresencePageState extends State<TenantPresencePage> {
                             ),
                             const SizedBox(height: 2),
                             const Text(
-                              'Please verify that GPS is turned on and location permissions are granted to automatically log curfew boundary arrival and departure.',
+                              'Turn on location services and grant Always / Allow all the time access so crossings can be logged while CarmeLink is closed.',
                               style: TextStyle(fontSize: 13),
                             ),
                             const SizedBox(height: 8),
@@ -4499,21 +4578,21 @@ class _TenantPresencePageState extends State<TenantPresencePage> {
                 items: [
                   const MutedDashboardItem(
                     label: 'Geofence boundary',
-                    value: '50m Radius',
-                    detail: 'Carmelita\'s Dormitory',
+                    value: 'Configured zone',
+                    detail: 'Server-managed tripwire boundary',
                     icon: Icons.location_searching_outlined,
                     color: Color(0xFF56886B),
                   ),
                   MutedDashboardItem(
                     label: 'Detection signal',
-                    value: isUnavailable ? 'Unavailable' : 'Active',
-                    detail: isUnavailable
-                        ? 'Check GPS & permissions'
-                        : 'GPS Geofencing',
-                    icon: isUnavailable
+                    value: monitoringActive ? 'Active' : 'Needs attention',
+                    detail: monitoringActive
+                        ? 'Native background monitoring'
+                        : 'Check Always location access',
+                    icon: !monitoringActive
                         ? Icons.location_disabled_outlined
                         : Icons.gps_fixed_outlined,
-                    color: isUnavailable
+                    color: !monitoringActive
                         ? const Color(0xFFB03A2E)
                         : const Color(0xFF627FA8),
                   ),

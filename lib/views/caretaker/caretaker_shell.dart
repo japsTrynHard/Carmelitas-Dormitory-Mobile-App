@@ -25,6 +25,8 @@ class _CaretakerShellState extends State<CaretakerShell> {
     OwnerController.instance.loadPayments();
     OwnerController.instance.loadCurfewRequests();
     OwnerController.instance.loadStaffMaintenance();
+    OwnerController.instance.loadTenants();
+    OwnerController.instance.loadGateEvents();
   }
 
   @override
@@ -33,7 +35,27 @@ class _CaretakerShellState extends State<CaretakerShell> {
         child: AdaptiveRoleShell(
           roleLabel: 'Caretaker',
           messagePage: OwnerMessagingPage(),
+          webDestinations: [
+            AppDestination(
+              label: 'Rooms',
+              icon: Icons.meeting_room_outlined,
+              selectedIcon: Icons.meeting_room,
+              page: RoomMonitoringPage(),
+            ),
+            AppDestination(
+              label: 'Accounts',
+              icon: Icons.manage_accounts_outlined,
+              selectedIcon: Icons.manage_accounts,
+              page: AccountManagementPage(),
+            ),
+          ],
           destinations: [
+            AppDestination(
+              label: 'Dashboard',
+              icon: Icons.dashboard_outlined,
+              selectedIcon: Icons.dashboard,
+              page: OwnerDashboardPage(isCaretaker: true),
+            ),
             AppDestination(
               label: 'Tenants',
               icon: Icons.groups_outlined,
@@ -41,35 +63,10 @@ class _CaretakerShellState extends State<CaretakerShell> {
               page: TenantDirectoryPage(),
             ),
             AppDestination(
-              label: 'Rooms',
-              icon: Icons.bed_outlined,
-              selectedIcon: Icons.bed,
-              page: RoomMonitoringPage(),
-            ),
-            AppDestination(
-              label: 'Payments',
-              icon: Icons.payments_outlined,
-              selectedIcon: Icons.payments,
-              page: PaymentVerificationPage(),
-            ),
-            AppDestination(
-              label: 'Maintenance',
-              icon: Icons.build_outlined,
-              selectedIcon: Icons.build,
-              page: MaintenanceManagementPage(),
-            ),
-            AppDestination(
-              label: 'Curfew',
-              icon: Icons.schedule_outlined,
-              selectedIcon: Icons.schedule,
-              page: GeofenceMonitoringPage(),
-              isWorkInProgress: true,
-            ),
-            AppDestination(
-              label: 'Accounts',
-              icon: Icons.manage_accounts_outlined,
-              selectedIcon: Icons.manage_accounts,
-              page: AccountManagementPage(),
+              label: 'Operations',
+              icon: Icons.tune_outlined,
+              selectedIcon: Icons.tune,
+              page: OperationsHubPage(),
             ),
             AppDestination(
               label: 'Profile',

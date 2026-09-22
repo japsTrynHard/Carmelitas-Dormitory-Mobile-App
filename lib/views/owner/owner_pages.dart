@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import 'package:flutter/services.dart';
@@ -16,12 +17,35 @@ import '../../services/announcement_service.dart';
 import '../../services/table_refresh_subscription.dart';
 import '../widgets/feature_widgets.dart';
 import '../shared/account_management_page.dart';
+import '../shared/staff_quick_panel.dart';
 import 'floor_plan_page.dart';
 import 'guardian_link_management_page.dart';
 import 'staff_maintenance_page.dart';
 import 'room_monitoring_page.dart';
 import 'geofence_dev_dashboard_page.dart';
 import 'contracts_page.dart';
+import 'tenant_onboarding_flow.dart';
+
+/// Filters existing Supabase-backed directory entries; no client-side
+/// tenant records are created or mutated here.
+List<TenantDirectoryEntry> filterTenantDirectory(
+  List<TenantDirectoryEntry> tenants, {
+  String query = '',
+  String residency = 'all',
+}) {
+  final needle = query.trim().toLowerCase();
+  return tenants.where((tenant) {
+    if (residency != 'all' && tenant.residencyStatus != residency) return false;
+    if (needle.isEmpty) return true;
+    return [
+      tenant.name,
+      tenant.room,
+      tenant.bedSpace,
+      tenant.phone,
+      tenant.guardianName,
+    ].any((field) => field.toLowerCase().contains(needle));
+  }).toList();
+}
 
 void _ownerPush(BuildContext context, Widget page) {
   Navigator.of(context).push(
@@ -29,8 +53,19 @@ void _ownerPush(BuildContext context, Widget page) {
   );
 }
 
+// Temporarily hidden until the full contract-onboarding flow is resumed.
+const _showOnboardingIncomplete = false;
+
 class OwnerDashboardPage extends StatelessWidget {
-  const OwnerDashboardPage({super.key});
+  const OwnerDashboardPage({
+    this.isCaretaker = false,
+    super.key,
+  });
+
+  /// Keeps the shared staff dashboard focused on the work available to the
+  /// signed-in role. Caretakers use the same operational data without seeing
+  /// owner-only contract reminders.
+  final bool isCaretaker;
 
   @override
   Widget build(BuildContext context) {
@@ -41,125 +76,225 @@ class OwnerDashboardPage extends StatelessWidget {
       subtitle: 'Priority-ranked Today view',
       child: AnimatedBuilder(
         animation: controller,
-        builder: (context, _) => Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            ElegantHeader(
-              eyebrow: 'Operations',
-              title: 'Good afternoon.',
-              subtitle:
-                  '${controller.occupiedBeds} of ${controller.totalCapacity} beds are currently occupied.',
-              trailing: StatusPill(
-                '${controller.tenantsInsideCount} inside',
-                icon: Icons.location_on_outlined,
+        builder: (context, _) {
+          final occupancyValue = controller.roomsLoadedOnce
+              ? '${controller.occupiedBeds}/${controller.totalCapacity}'
+              : controller.roomsLoading
+                  ? '...'
+                  : 'â€”';
+          final presenceValue = controller.tenantsLoadedOnce
+              ? '${controller.tenantsInsideCount} Inside'
+              : controller.tenantsLoading
+                  ? 'Loading'
+                  : 'Unavailable';
+          final paymentValue = controller.paymentsLoadedOnce
+              ? '${controller.pendingPaymentProofs}'
+              : controller.paymentsLoading
+                  ? '...'
+                  : 'â€”';
+          final maintenanceValue = controller.maintenanceLoadedOnce
+              ? '${controller.openMaintenance}'
+              : controller.maintenanceLoading
+                  ? '...'
+                  : 'â€”';
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ElegantHeader(
+                eyebrow: isCaretaker ? 'Caretaker operations' : 'Operations',
+                title: 'Good afternoon.',
+                subtitle: controller.roomsLoadedOnce
+                    ? '${controller.occupiedBeds} of ${controller.totalCapacity} beds are currently occupied.'
+                    : controller.roomsLoading
+                        ? 'Loading current property status...'
+                        : controller.roomsError != null
+                            ? 'Property status is unavailable.'
+                            : 'No room data available.',
+                trailing: StatusPill(
+                  controller.tenantsLoadedOnce
+                      ? '${controller.tenantsInsideCount} inside'
+                      : controller.tenantsLoading
+                          ? 'Loading'
+                          : 'No data',
+                  icon: Icons.location_on_outlined,
+                ),
               ),
-            ),
-            const SizedBox(height: 22),
-            const PhotoHero(
-              image: AppAssets.dormOverview,
-              title: 'CarmeLink',
-              subtitle: 'Quick monitoring for daily operations',
-              height: 220,
-            ),
-            const SizedBox(height: 22),
-            const SectionTitle(
-              'Property status',
-              subtitle: 'The numbers that matter most right now',
-            ),
-            const SizedBox(height: 10),
-            MutedDashboardGrid(
-              denseFourColumn: true,
-              items: [
-                MutedDashboardItem(
-                  label: 'Occupancy',
-                  value:
-                      '${controller.occupiedBeds}/${controller.totalCapacity}',
-                  detail: '${controller.rooms.length} rooms',
-                  icon: Icons.bed_outlined,
-                  color: const Color(0xFF56886B),
-                  onTap: () => _ownerPush(
-                    context,
-                    const RoomMonitoringPage(),
+              const SizedBox(height: 16),
+              const PhotoHero(
+                image: AppAssets.dormOverview,
+                title: 'CarmeLink',
+                subtitle: 'Quick monitoring for daily operations',
+                height: 176,
+              ),
+              const SizedBox(height: 16),
+              const SectionTitle(
+                'Property status',
+                subtitle: 'The numbers that matter most right now',
+              ),
+              const SizedBox(height: 10),
+              MutedDashboardGrid(
+                compact: true,
+                denseFourColumn: true,
+                items: [
+                  MutedDashboardItem(
+                    label: 'Occupancy',
+                    value: occupancyValue,
+                    detail: controller.roomsLoadedOnce
+                        ? '${controller.rooms.length} rooms'
+                        : controller.roomsError != null
+                            ? 'Room data unavailable'
+                            : 'No room data',
+                    icon: Icons.bed_outlined,
+                    color: const Color(0xFF56886B),
+                    onTap: () => _ownerPush(
+                      context,
+                      const RoomMonitoringPage(),
+                    ),
                   ),
-                ),
-                MutedDashboardItem(
-                  label: 'Payment reviews',
-                  value: '${controller.pendingPaymentProofs}',
-                  detail: 'Proofs waiting',
-                  icon: Icons.payments_outlined,
-                  color: const Color(0xFFAA8A45),
-                  onTap: () => _ownerPush(
-                    context,
-                    const PaymentVerificationPage(),
+                  MutedDashboardItem(
+                    label: 'Payment reviews',
+                    value: paymentValue,
+                    detail: controller.paymentsLoadedOnce
+                        ? 'Proofs waiting'
+                        : controller.paymentsError != null
+                            ? 'Payment data unavailable'
+                            : 'No payment data',
+                    icon: Icons.payments_outlined,
+                    color: const Color(0xFFAA8A45),
+                    onTap: () => _ownerPush(
+                      context,
+                      const PaymentVerificationPage(),
+                    ),
                   ),
-                ),
-                MutedDashboardItem(
-                  label: 'Maintenance',
-                  value: '${controller.openMaintenance}',
-                  detail: 'Open reports',
+                  MutedDashboardItem(
+                    label: 'Maintenance',
+                    value: maintenanceValue,
+                    detail: controller.maintenanceLoadedOnce
+                        ? 'Open reports'
+                        : controller.maintenanceError != null
+                            ? 'Maintenance unavailable'
+                            : 'No maintenance data',
+                    icon: Icons.build_outlined,
+                    color: const Color(0xFFB47A52),
+                    onTap: () => _ownerPush(
+                      context,
+                      const MaintenanceManagementPage(),
+                    ),
+                  ),
+                  MutedDashboardItem(
+                    label: 'Curfew',
+                    value: presenceValue,
+                    detail: controller.tenantsLoadedOnce
+                        ? '${controller.tenantsOutsideCount} Outside â€¢ ${controller.tenantsUnavailableCount} Unavailable'
+                        : controller.tenantsError != null
+                            ? 'Presence data unavailable'
+                            : 'No presence data',
+                    icon: Icons.schedule_outlined,
+                    color: const Color(0xFF56886B),
+                    onTap: () => _ownerPush(
+                      context,
+                      const GeofenceMonitoringPage(),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              const SectionTitle(
+                'Today • highest priority first',
+                subtitle: 'Actionable items before routine monitoring',
+              ),
+              const SizedBox(height: 10),
+              if (isCaretaker)
+                AttentionCard(
+                  compact: true,
                   icon: Icons.build_outlined,
-                  color: const Color(0xFFB47A52),
+                  title: controller.maintenanceLoadedOnce
+                      ? '${controller.openMaintenance} maintenance report(s) open'
+                      : 'Maintenance data unavailable',
+                  subtitle: controller.maintenanceLoadedOnce
+                      ? 'Review assignments and update repair progress.'
+                      : controller.maintenanceError ??
+                          'No maintenance information has been loaded.',
+                  status: controller.maintenanceLoadedOnce
+                      ? controller.openMaintenance > 0
+                          ? 'Open'
+                          : 'Clear'
+                      : controller.maintenanceLoading
+                          ? 'Loading'
+                          : 'No data',
                   onTap: () => _ownerPush(
                     context,
                     const MaintenanceManagementPage(),
                   ),
+                )
+              else
+                AttentionCard(
+                  compact: true,
+                  icon: Icons.event_busy_outlined,
+                  title: controller.contractsLoadedOnce
+                      ? '${controller.contractsExpiringWithin30Days} contract(s) expire within 30 days'
+                      : 'Contract data unavailable',
+                  subtitle: controller.contractsLoadedOnce
+                      ? 'Review renewal or move-out arrangements.'
+                      : controller.contractsError ??
+                          'No contract information has been loaded.',
+                  status: controller.contractsLoadedOnce
+                      ? controller.contractsExpiringWithin30Days > 0
+                          ? 'Soon'
+                          : 'Clear'
+                      : controller.contractsLoading
+                          ? 'Loading'
+                          : 'No data',
+                  onTap: () => _ownerPush(context, const ContractsPage()),
                 ),
-                MutedDashboardItem(
-                  label: 'Curfew',
-                  value: '${controller.tenantsInsideCount} Inside',
-                  detail: '${controller.tenantsOutsideCount} Outside',
-                  icon: Icons.schedule_outlined,
-                  color: const Color(0xFF56886B),
-                  onTap: () => _ownerPush(
-                    context,
-                    const GeofenceMonitoringPage(),
-                  ),
+              const SizedBox(height: 8),
+              AttentionCard(
+                compact: true,
+                icon: Icons.receipt_long_outlined,
+                title: controller.paymentsLoadedOnce
+                    ? '${controller.pendingPaymentProofs} payment proof(s) waiting'
+                    : 'Payment data unavailable',
+                subtitle: controller.paymentsLoadedOnce
+                    ? 'Review uploaded proof before changing payment status.'
+                    : controller.paymentsError ??
+                        'No payment information has been loaded.',
+                status: controller.paymentsLoadedOnce
+                    ? controller.pendingPaymentProofs > 0
+                        ? 'Pending'
+                        : 'Clear'
+                    : controller.paymentsLoading
+                        ? 'Loading'
+                        : 'No data',
+                onTap: () => _ownerPush(
+                  context,
+                  const PaymentVerificationPage(),
                 ),
-              ],
-            ),
-            const SizedBox(height: 24),
-            const SectionTitle(
-              'Today • highest priority first',
-              subtitle: 'Actionable items before routine monitoring',
-            ),
-            const SizedBox(height: 10),
-            AttentionCard(
-              compact: true,
-              icon: Icons.event_busy_outlined,
-              title:
-                  '${controller.contractsExpiringWithin30Days} contract(s) expire within 30 days',
-              subtitle: 'Review renewal or move-out arrangements.',
-              status: 'Soon',
-              onTap: () => _ownerPush(context, const ContractsPage()),
-            ),
-            const SizedBox(height: 8),
-            AttentionCard(
-              compact: true,
-              icon: Icons.receipt_long_outlined,
-              title:
-                  '${controller.pendingPaymentProofs} payment proof(s) waiting',
-              subtitle: 'Review uploaded proof before changing payment status.',
-              status: controller.pendingPaymentProofs > 0 ? 'Pending' : 'Clear',
-              onTap: () => _ownerPush(
-                context,
-                const PaymentVerificationPage(),
               ),
-            ),
-            const SizedBox(height: 8),
-            AttentionCard(
-              compact: true,
-              icon: Icons.location_on_outlined,
-              title: 'Dormitory geofencing active',
-              subtitle:
-                  'GPS perimeter monitoring ${controller.tenants.length} registered residents.',
-              status: 'Active',
-              onTap: () => _ownerPush(
-                context,
-                const GeofenceMonitoringPage(),
+              const SizedBox(height: 8),
+              AttentionCard(
+                compact: true,
+                icon: Icons.location_on_outlined,
+                title: controller.tenantsLoadedOnce
+                    ? 'Resident presence overview'
+                    : 'Presence data unavailable',
+                subtitle: controller.tenantsLoadedOnce
+                    ? '${controller.tenantsInsideCount} inside, ${controller.tenantsOutsideCount} outside, and ${controller.tenantsUnavailableCount} unavailable.'
+                    : controller.tenantsError ??
+                        'No resident presence information has been loaded.',
+                status: controller.tenantsLoadedOnce
+                    ? 'Current'
+                    : controller.tenantsLoading
+                        ? 'Loading'
+                        : 'No data',
+                onTap: () => _ownerPush(
+                  context,
+                  const GeofenceMonitoringPage(),
+                ),
               ),
-            ),
-          ],
-        ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -179,6 +314,113 @@ class _TenantDirectoryPageState extends State<TenantDirectoryPage> {
   String? _errorMessage;
   late final TableRefreshSubscription _subscription;
   String query = '';
+  String residencyFilter = 'all';
+  bool _creatingTenant = false;
+
+  Future<void> _createTenant() async {
+    if (_creatingTenant) return;
+    setState(() => _creatingTenant = true);
+    bool accountCreated = false;
+    try {
+      final created = await showCreateTenantAccount(context);
+      if (created == null || !mounted) return;
+      accountCreated = true;
+      TenantService.invalidateCache();
+      await _fetchTenants(showSpinner: false);
+      await OwnerController.instance.loadTenants(force: true);
+      if (!mounted) return;
+      if (SessionController.instance.currentUser?.role == UserRole.owner) {
+        final createContract = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Tenant account created'),
+            content:
+                Text('Create a draft contract for ${created.fullName} now? '
+                    'You can also do this later from the tenant details.'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Do this later'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('Create contract'),
+              ),
+            ],
+          ),
+        );
+        if (createContract == true && mounted) {
+          await showContractEditor(
+            context,
+            initialTenantId: created.id,
+            initialTenantName: created.fullName,
+            lockTenant: true,
+          );
+          if (!mounted) return;
+          await _fetchTenants(showSpinner: false);
+        }
+      } else {
+        showAppSnackBar(context, 'Tenant account created.');
+      }
+    } catch (error) {
+      if (mounted) {
+        showAppSnackBar(
+          context,
+          accountCreated
+              ? 'Tenant account was created, but a follow-up step failed: $error'
+              : 'Could not create tenant: $error',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _creatingTenant = false);
+    }
+  }
+
+  Future<void> _openTenant(TenantDirectoryEntry tenant) async {
+    // On wide web, quick inspection should not lose search/filter position.
+    // On mobile and narrow web, preserve the existing full-page behavior.
+    if (kIsWeb && MediaQuery.sizeOf(context).width >= 1024) {
+      final action = await showStaffQuickPanel<_TenantQuickAction>(
+        context,
+        builder: (panelContext) => TenantQuickPreview(
+          tenant: tenant,
+          onClose: () => Navigator.of(panelContext).pop(),
+          onFullDetails: () =>
+              Navigator.of(panelContext).pop(_TenantQuickAction.full),
+          onManageAccount: () =>
+              Navigator.of(panelContext).pop(_TenantQuickAction.manage),
+        ),
+      );
+      if (!mounted) return;
+      if (action == _TenantQuickAction.manage) {
+        await _editTenant(tenant);
+      } else if (action == _TenantQuickAction.full) {
+        await _openFullTenantDetails(tenant);
+      }
+    } else {
+      await _openFullTenantDetails(tenant);
+    }
+  }
+
+  Future<void> _openFullTenantDetails(TenantDirectoryEntry tenant) async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(builder: (_) => TenantDetailsPage(tenant: tenant)),
+    );
+    if (mounted) await _fetchTenants(showSpinner: false);
+  }
+
+  Future<void> _editTenant(TenantDirectoryEntry tenant) async {
+    try {
+      final changed = await showEditTenantAccount(context, tenant.id);
+      if (!changed || !mounted) return;
+      TenantService.invalidateCache();
+      await _fetchTenants(showSpinner: false);
+      await OwnerController.instance.loadTenants(force: true);
+      if (mounted) showAppSnackBar(context, 'Tenant account updated.');
+    } catch (error) {
+      if (mounted) showAppSnackBar(context, 'Could not manage tenant: $error');
+    }
+  }
 
   @override
   void initState() {
@@ -261,25 +503,71 @@ class _TenantDirectoryPageState extends State<TenantDirectoryPage> {
       );
     } else {
       final allTenants = currentTenants ?? [];
-      final filtered = allTenants
-          .where(
-            (tenant) =>
-                tenant.name.toLowerCase().contains(
-                      query.toLowerCase(),
-                    ) ||
-                tenant.room.contains(query),
-          )
-          .toList();
+      final filtered = kIsWeb
+          ? filterTenantDirectory(
+              allTenants,
+              query: query,
+              residency: residencyFilter,
+            )
+          : allTenants
+              .where((tenant) =>
+                  tenant.name.toLowerCase().contains(query.toLowerCase()) ||
+                  tenant.room.contains(query))
+              .toList();
 
       body = Column(
         children: [
-          TextField(
-            decoration: const InputDecoration(
-              prefixIcon: Icon(Icons.search),
-              hintText: 'Search tenant name or room',
+          if (kIsWeb)
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                SizedBox(
+                  width: 340,
+                  child: TextField(
+                    key: const Key('web-tenant-search'),
+                    decoration: const InputDecoration(
+                      prefixIcon: Icon(Icons.search),
+                      hintText: 'Search name, room, phone or guardian',
+                    ),
+                    onChanged: (value) => setState(() => query = value),
+                  ),
+                ),
+                SizedBox(
+                  width: 190,
+                  child: DropdownButtonFormField<String>(
+                    key: const Key('web-tenant-residency-filter'),
+                    initialValue: residencyFilter,
+                    decoration:
+                        const InputDecoration(labelText: 'Residency status'),
+                    items: const [
+                      DropdownMenuItem(
+                          value: 'all', child: Text('All statuses')),
+                      DropdownMenuItem(value: 'active', child: Text('Active')),
+                      DropdownMenuItem(
+                          value: 'moving_out', child: Text('Moving out')),
+                      DropdownMenuItem(
+                          value: 'inactive', child: Text('Inactive')),
+                    ],
+                    onChanged: (value) {
+                      if (value != null) {
+                        setState(() => residencyFilter = value);
+                      }
+                    },
+                  ),
+                ),
+                Text('${filtered.length} of ${allTenants.length} tenants'),
+              ],
+            )
+          else
+            TextField(
+              decoration: const InputDecoration(
+                prefixIcon: Icon(Icons.search),
+                hintText: 'Search tenant name or room',
+              ),
+              onChanged: (value) => setState(() => query = value),
             ),
-            onChanged: (value) => setState(() => query = value),
-          ),
           const SizedBox(height: 14),
           if (filtered.isEmpty)
             const EmptyState(
@@ -318,19 +606,34 @@ class _TenantDirectoryPageState extends State<TenantDirectoryPage> {
                             ),
                           ),
                         ),
-                        if (tenant.hasContract == false)
+                        if (_showOnboardingIncomplete &&
+                            tenant.hasContract == false)
                           const _OnboardingIncompleteBadge(),
                       ],
                     ),
                     subtitle: Text('Room ${tenant.room} • ${tenant.bedSpace}'),
-                    trailing:
-                        StatusPill(_residencyLabel(tenant.residencyStatus)),
-                    onTap: () async {
-                      await Navigator.of(context).push(MaterialPageRoute<void>(
-                        builder: (_) => TenantDetailsPage(tenant: tenant),
-                      ));
-                      if (mounted) _fetchTenants(showSpinner: false);
-                    },
+                    trailing: kIsWeb
+                        ? SizedBox(
+                            width: 156,
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.end,
+                              children: [
+                                Flexible(
+                                  child: StatusPill(
+                                      _residencyLabel(tenant.residencyStatus)),
+                                ),
+                                IconButton(
+                                  key: Key('web-edit-tenant-${tenant.id}'),
+                                  tooltip: 'Edit or delete tenant account',
+                                  icon: const Icon(
+                                      Icons.manage_accounts_outlined),
+                                  onPressed: () => _editTenant(tenant),
+                                ),
+                              ],
+                            ),
+                          )
+                        : StatusPill(_residencyLabel(tenant.residencyStatus)),
+                    onTap: () => _openTenant(tenant),
                   ),
                 ),
               ),
@@ -341,7 +644,17 @@ class _TenantDirectoryPageState extends State<TenantDirectoryPage> {
 
     return PageFrame(
       title: 'Tenants',
-      subtitle: 'Search and view tenant records',
+      subtitle: kIsWeb
+          ? 'Search and manage tenant records'
+          : 'Search and view tenant records',
+      floatingActionButton: kIsWeb
+          ? FloatingActionButton.extended(
+              key: const Key('web-create-tenant'),
+              onPressed: _creatingTenant ? null : _createTenant,
+              icon: const Icon(Icons.person_add_outlined),
+              label: Text(_creatingTenant ? 'Creating...' : 'Add tenant'),
+            )
+          : null,
       actions: [
         IconButton(
           tooltip: 'Refresh',
@@ -354,6 +667,83 @@ class _TenantDirectoryPageState extends State<TenantDirectoryPage> {
   }
 }
 
+// Only preview and navigation here. Changes still go through the existing
+// tenant/account services and the full mobile-equivalent detail screen.
+enum _TenantQuickAction { full, manage }
+
+class TenantQuickPreview extends StatelessWidget {
+  const TenantQuickPreview({
+    required this.tenant,
+    required this.onFullDetails,
+    required this.onManageAccount,
+    required this.onClose,
+    super.key,
+  });
+
+  final TenantDirectoryEntry tenant;
+  final VoidCallback onFullDetails;
+  final VoidCallback onManageAccount;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) => Column(
+        key: const Key('tenant-quick-preview'),
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text('Tenant details',
+                    style: Theme.of(context).textTheme.titleLarge),
+              ),
+              IconButton(
+                tooltip: 'Close quick details',
+                onPressed: onClose,
+                icon: const Icon(Icons.close),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text(tenant.name,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  )),
+          const SizedBox(height: 6),
+          StatusPill(_residencyLabel(tenant.residencyStatus)),
+          const Divider(height: 32),
+          InfoRow(
+            label: 'Room and bed',
+            value: '${tenant.room} • ${tenant.bedSpace}',
+            icon: Icons.bed_outlined,
+          ),
+          InfoRow(
+            label: 'Phone',
+            value: tenant.phone,
+            icon: Icons.phone_outlined,
+          ),
+          InfoRow(
+            label: 'Guardian',
+            value: tenant.guardianName,
+            icon: Icons.family_restroom_outlined,
+          ),
+          const SizedBox(height: 24),
+          FilledButton.icon(
+            key: const Key('tenant-quick-full-details'),
+            onPressed: onFullDetails,
+            icon: const Icon(Icons.open_in_new),
+            label: const Text('Open full tenant details'),
+          ),
+          const SizedBox(height: 10),
+          OutlinedButton.icon(
+            key: const Key('tenant-quick-manage-account'),
+            onPressed: onManageAccount,
+            icon: const Icon(Icons.manage_accounts_outlined),
+            label: const Text('Manage account'),
+          ),
+        ],
+      );
+}
+
 class TenantDetailsPage extends StatelessWidget {
   const TenantDetailsPage({
     required this.tenant,
@@ -364,9 +754,42 @@ class TenantDetailsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isOwnerWeb = kIsWeb &&
+        SessionController.instance.currentUser?.role == UserRole.owner;
+    final isStaffWeb = kIsWeb &&
+        {UserRole.owner, UserRole.caretaker}.contains(
+          SessionController.instance.currentUser?.role,
+        );
+    final needsContract = tenant.hasContract == false;
+    final needsBed = tenant.assignmentId == null;
+    final needsGuardian = tenant.guardianName == 'Not assigned';
+
     return PageFrame(
       title: tenant.name,
       subtitle: 'Tenant details',
+      actions: isStaffWeb
+          ? [
+              IconButton(
+                tooltip: 'Edit or delete tenant account',
+                icon: const Icon(Icons.manage_accounts_outlined),
+                onPressed: () async {
+                  try {
+                    final changed =
+                        await showEditTenantAccount(context, tenant.id);
+                    if (changed && context.mounted) {
+                      TenantService.invalidateCache();
+                      Navigator.of(context).pop();
+                    }
+                  } catch (error) {
+                    if (context.mounted) {
+                      showAppSnackBar(
+                          context, 'Could not manage tenant: $error');
+                    }
+                  }
+                },
+              ),
+            ]
+          : null,
       child: Column(
         children: [
           CarmelitaCard(
@@ -407,7 +830,55 @@ class TenantDetailsPage extends StatelessWidget {
               ],
             ),
           ),
-          if (tenant.hasContract == false) ...[
+          if (isOwnerWeb && (needsContract || needsBed || needsGuardian)) ...[
+            const SizedBox(height: 14),
+            CarmelitaCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const SectionTitle('Onboarding checklist'),
+                  const SizedBox(height: 8),
+                  Text(
+                      'Contract: ${needsContract ? 'Not created' : 'Created'}'),
+                  Text('Bed: ${needsBed ? 'Not assigned' : 'Assigned'}'),
+                  Text('Primary guardian: '
+                      '${needsGuardian ? 'Not assigned' : 'Assigned'}'),
+                  const SizedBox(height: 12),
+                  FilledButton.icon(
+                    key: const Key('web-tenant-onboarding-action'),
+                    onPressed: () async {
+                      if (needsContract) {
+                        final saved = await showContractEditor(
+                          context,
+                          initialTenantId: tenant.id,
+                          initialTenantName: tenant.name,
+                          lockTenant: true,
+                        );
+                        if (saved == true && context.mounted) {
+                          Navigator.pop(context);
+                        }
+                      } else {
+                        await continueTenantOnboarding(
+                          context,
+                          tenantId: tenant.id,
+                          tenantName: tenant.name,
+                          fromSavedContract: false,
+                        );
+                        if (context.mounted) Navigator.pop(context);
+                      }
+                    },
+                    icon: Icon(needsContract
+                        ? Icons.description_outlined
+                        : Icons.task_alt_outlined),
+                    label: Text(needsContract
+                        ? 'Create draft contract'
+                        : 'Continue onboarding'),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          if (_showOnboardingIncomplete && tenant.hasContract == false) ...[
             const SizedBox(height: 14),
             Container(
               padding: const EdgeInsets.all(16),
@@ -629,6 +1100,7 @@ class _TenantAssignmentManagerState extends State<_TenantAssignmentManager> {
             TextButton(
                 onPressed: saving ? null : _end,
                 child: const Text('End current assignment')),
+          const SizedBox(height: 14),
           DropdownButtonFormField<String>(
               initialValue: widget.tenant.residencyStatus,
               decoration: const InputDecoration(labelText: 'Residency status'),
@@ -942,8 +1414,26 @@ class _OperationsHubPageState extends State<OperationsHubPage> {
   final Set<String> _quickAccess = {'Payments', 'Maintenance', 'Floor plan'};
   String query = '';
 
+  bool get _isCaretaker =>
+      SessionController.instance.currentUser?.role == UserRole.caretaker;
+
+  List<_OperationCategory> get _visibleCategories => _operationCategories
+      .map(
+        (category) => _OperationCategory(
+          category.title,
+          category.subtitle,
+          category.icon,
+          category.color,
+          category.items
+              .where((item) => !_isCaretaker || !item.ownerOnly)
+              .toList(),
+        ),
+      )
+      .where((category) => category.items.isNotEmpty)
+      .toList();
+
   List<_OperationItem> get _allOperationItems =>
-      _operationCategories.expand((category) => category.items).toList();
+      _visibleCategories.expand((category) => category.items).toList();
 
   @override
   void dispose() {
@@ -954,7 +1444,7 @@ class _OperationsHubPageState extends State<OperationsHubPage> {
   @override
   Widget build(BuildContext context) {
     final controller = OwnerController.instance;
-    final categories = _operationCategories;
+    final categories = _visibleCategories;
     final filtered = categories.where((category) {
       final searchable = [
         category.title,
@@ -995,8 +1485,8 @@ class _OperationsHubPageState extends State<OperationsHubPage> {
               ),
               const SizedBox(width: 10),
               Container(
-                width: 52,
-                height: 52,
+                width: 46,
+                height: 46,
                 decoration: BoxDecoration(
                   color: Theme.of(context).colorScheme.primaryContainer,
                   borderRadius: BorderRadius.circular(15),
@@ -1005,8 +1495,9 @@ class _OperationsHubPageState extends State<OperationsHubPage> {
                     color: Theme.of(context).colorScheme.primary),
               ),
             ]),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
             LayoutBuilder(builder: (context, constraints) {
+              final textScale = MediaQuery.textScalerOf(context).scale(1);
               final cards = [
                 _OperationsStatus(
                     'Occupied rooms',
@@ -1036,14 +1527,14 @@ class _OperationsHubPageState extends State<OperationsHubPage> {
                   crossAxisCount: constraints.maxWidth < 600 ? 2 : 4,
                   crossAxisSpacing: 8,
                   mainAxisSpacing: 8,
-                  childAspectRatio: constraints.maxWidth < 600 ? 1.55 : 1.2,
+                  mainAxisExtent: 110 + ((textScale - 1).clamp(0, 1) * 65),
                 ),
                 itemCount: cards.length,
                 itemBuilder: (context, index) =>
                     _OperationsStatusCard(data: cards[index]),
               );
             }),
-            const SizedBox(height: 24),
+            const SizedBox(height: 18),
             Row(
               children: [
                 Expanded(
@@ -1097,7 +1588,7 @@ class _OperationsHubPageState extends State<OperationsHubPage> {
                         )),
               ],
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
             Text('Management areas',
                 style: Theme.of(context)
                     .textTheme
@@ -1117,6 +1608,7 @@ class _OperationsHubPageState extends State<OperationsHubPage> {
             else
               LayoutBuilder(builder: (context, constraints) {
                 final columns = constraints.maxWidth >= 700 ? 2 : 1;
+                final textScale = MediaQuery.textScalerOf(context).scale(1);
                 return GridView.builder(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
@@ -1124,7 +1616,7 @@ class _OperationsHubPageState extends State<OperationsHubPage> {
                     crossAxisCount: columns,
                     crossAxisSpacing: 10,
                     mainAxisSpacing: 10,
-                    childAspectRatio: constraints.maxWidth < 520 ? 3.15 : 3.5,
+                    mainAxisExtent: 76 + ((textScale - 1).clamp(0, 1) * 60),
                   ),
                   itemCount: filtered.length,
                   itemBuilder: (context, index) => _OperationCategoryCard(
@@ -1254,6 +1746,7 @@ const _operationCategories = [
         'Connect guardians to tenant accounts',
         Icons.family_restroom_outlined,
         GuardianLinkManagementPage(),
+        ownerOnly: true,
       ),
     ],
   ),
@@ -1285,9 +1778,11 @@ const _operationCategories = [
       _OperationItem('Visitors', 'Manage visitor requests',
           Icons.people_outline, VisitorManagementPage()),
       _OperationItem('Confidential reports', 'Review private reports',
-          Icons.shield_outlined, ConfidentialReportsPage()),
+          Icons.shield_outlined, ConfidentialReportsPage(),
+          ownerOnly: true),
       _OperationItem('Disciplinary records', 'Manage violations',
-          Icons.gavel_outlined, DisciplinaryRecordsPage()),
+          Icons.gavel_outlined, DisciplinaryRecordsPage(),
+          ownerOnly: true),
     ],
   ),
   _OperationCategory(
@@ -1299,11 +1794,14 @@ const _operationCategories = [
       _OperationItem('Payments', 'Verify and track payments',
           Icons.payments_outlined, PaymentVerificationPage()),
       _OperationItem('Income & expenses', 'Monitor property finances',
-          Icons.insights_outlined, ExpenseIncomeSummaryPage()),
+          Icons.insights_outlined, ExpenseIncomeSummaryPage(),
+          ownerOnly: true),
       _OperationItem('Contracts', 'Create contracts and track renewals',
-          Icons.event_busy_outlined, ContractsPage()),
+          Icons.event_busy_outlined, ContractsPage(),
+          ownerOnly: true),
       _OperationItem('Reports & analytics', 'View detailed reports',
-          Icons.analytics_outlined, ReportsAnalyticsPage()),
+          Icons.analytics_outlined, ReportsAnalyticsPage(),
+          ownerOnly: true),
     ],
   ),
   _OperationCategory(
@@ -1336,7 +1834,7 @@ class OperationsCategoryPage extends StatelessWidget {
           children: [
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.all(18),
+              padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
                 color: category.color.withValues(alpha: .07),
                 borderRadius: BorderRadius.circular(20),
@@ -1346,12 +1844,12 @@ class OperationsCategoryPage extends StatelessWidget {
               child: Row(
                 children: [
                   CircleAvatar(
-                    radius: 25,
+                    radius: 21,
                     backgroundColor: category.color.withValues(alpha: .12),
                     foregroundColor: category.color,
                     child: Icon(category.icon),
                   ),
-                  const SizedBox(width: 14),
+                  const SizedBox(width: 10),
                   Expanded(
                     child: Text(
                       '${category.items.length} connected pages',
@@ -1364,9 +1862,10 @@ class OperationsCategoryPage extends StatelessWidget {
                 ],
               ),
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 12),
             LayoutBuilder(builder: (context, constraints) {
               final columns = constraints.maxWidth >= 700 ? 2 : 1;
+              final textScale = MediaQuery.textScalerOf(context).scale(1);
               return GridView.builder(
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
@@ -1375,7 +1874,7 @@ class OperationsCategoryPage extends StatelessWidget {
                   crossAxisCount: columns,
                   crossAxisSpacing: 10,
                   mainAxisSpacing: 10,
-                  childAspectRatio: constraints.maxWidth < 520 ? 4.5 : 4.2,
+                  mainAxisExtent: 62 + ((textScale - 1).clamp(0, 1) * 28),
                 ),
                 itemBuilder: (context, index) => _OperationShortcut(
                   item: category.items[index],
@@ -1418,6 +1917,8 @@ class _OperationCategoryCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(category.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                           fontWeight: FontWeight.w900, fontSize: 14)),
                   const SizedBox(height: 2),
@@ -1570,13 +2071,15 @@ class _OperationItem {
     this.title,
     this.subtitle,
     this.icon,
-    this.page,
-  );
+    this.page, {
+    this.ownerOnly = false,
+  });
 
   final String title;
   final String subtitle;
   final IconData icon;
   final Widget page;
+  final bool ownerOnly;
 }
 
 class LegacyRoomMonitoringPage extends StatelessWidget {
@@ -2053,6 +2556,9 @@ class _FilterChip extends StatelessWidget {
       borderRadius: BorderRadius.circular(20),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.sizeOf(context).width - 32,
+        ),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
           color: selected
@@ -2080,14 +2586,17 @@ class _FilterChip extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 8),
-            Text(
-              label,
-              style: TextStyle(
-                fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
-                fontSize: 13,
-                color: selected
-                    ? theme.colorScheme.primary
-                    : theme.colorScheme.onSurface,
+            Flexible(
+              child: Text(
+                label,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                  fontSize: 13,
+                  color: selected
+                      ? theme.colorScheme.primary
+                      : theme.colorScheme.onSurface,
+                ),
               ),
             ),
           ],
@@ -3576,7 +4085,7 @@ class _GeofenceMonitoringPageState extends State<GeofenceMonitoringPage> {
 
     return PageFrame(
       title: 'Curfew',
-      subtitle: 'Geofence perimeter and live resident presence',
+      subtitle: 'Automatic dormitory entry and exit records',
       actions: [
         IconButton(
           tooltip: 'Refresh presence & events',
@@ -3656,15 +4165,15 @@ class _GeofenceMonitoringPageState extends State<GeofenceMonitoringPage> {
               AdaptiveGrid(
                 children: [
                   MetricCard(
-                    label: 'Inside perimeter',
+                    label: 'Last event: IN',
                     value: '${controller.tenantsInsideCount}',
-                    detail: 'Residents on premises',
+                    detail: 'Latest recorded crossing was entry',
                     icon: Icons.home_outlined,
                   ),
                   MetricCard(
-                    label: 'Outside perimeter',
+                    label: 'Last event: OUT',
                     value: '${controller.tenantsOutsideCount}',
-                    detail: 'Residents away',
+                    detail: 'Latest recorded crossing was exit',
                     icon: Icons.directions_walk_outlined,
                   ),
                   MetricCard(
@@ -3745,8 +4254,9 @@ class _GeofenceMonitoringPageState extends State<GeofenceMonitoringPage> {
               ),
               const SizedBox(height: 22),
               const SectionTitle(
-                'Resident presence directory',
-                subtitle: 'Current presence verified via on-device geofence',
+                'Last recorded crossing by resident',
+                subtitle:
+                    'Tripwire history is supporting evidence, not live tracking',
               ),
               const SizedBox(height: 8),
               Wrap(

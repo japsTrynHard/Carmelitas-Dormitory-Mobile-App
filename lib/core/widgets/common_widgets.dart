@@ -151,10 +151,10 @@ class MutedDashboardGrid extends StatelessWidget {
             crossAxisCount: columns,
             crossAxisSpacing: 8,
             mainAxisSpacing: 8,
+            mainAxisExtent:
+                compact ? 114 + ((textScale - 1).clamp(0, 1) * 60) : null,
             childAspectRatio: compact
-                ? (constraints.maxWidth < 500
-                    ? (scaledText ? 1.18 : 1.45)
-                    : (scaledText ? 1.4 : 1.7))
+                ? (scaledText ? 1.05 : 1.25)
                 : denseFourColumn && constraints.maxWidth < 500
                     ? (scaledText ? .54 : .65)
                     : constraints.maxWidth < 500
@@ -305,6 +305,7 @@ class PageFrame extends StatelessWidget {
     this.heroTitle,
     this.useScriptTitle = true,
     this.onRefresh,
+    this.onBack,
     super.key,
   });
 
@@ -316,6 +317,7 @@ class PageFrame extends StatelessWidget {
   final List<Widget>? actions;
   final Widget? floatingActionButton;
   final Future<void> Function()? onRefresh;
+  final VoidCallback? onBack;
 
   @override
   Widget build(BuildContext context) {
@@ -398,8 +400,8 @@ class PageFrame extends StatelessWidget {
         extendBody: navScope != null,
         backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         appBar: AppBar(
-          toolbarHeight: 72,
-          leadingWidth: 68,
+          toolbarHeight: isStaff ? 64 : 72,
+          leadingWidth: isStaff ? 60 : 68,
           leading: Padding(
             padding: const EdgeInsets.only(left: 12),
             child: IconButton(
@@ -411,6 +413,8 @@ class PageFrame extends StatelessWidget {
               onPressed: () {
                 if (navScope != null) {
                   navScope.openMenu();
+                } else if (onBack != null) {
+                  onBack!();
                 } else if (canPop) {
                   Navigator.of(context).maybePop();
                 }
@@ -614,17 +618,21 @@ class CarmelitaCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final ext = Theme.of(context).extension<CarmelitaThemeExtension>();
     final scheme = Theme.of(context).colorScheme;
+    final role = SessionController.instance.currentUser?.role;
+    final isStaff = role == UserRole.owner || role == UserRole.caretaker;
+    final usesDefaultPadding = padding == const EdgeInsets.all(16);
+    final resolvedPadding =
+        isStaff && usesDefaultPadding ? const EdgeInsets.all(12) : padding;
+    final radius = isStaff ? 16.0 : 20.0;
 
     final content = AnimatedContainer(
       duration: const Duration(milliseconds: 190),
       curve: Curves.easeOutCubic,
-      padding: padding,
+      padding: resolvedPadding,
       decoration: BoxDecoration(
         color:
             emphasis ? scheme.primary.withValues(alpha: .075) : scheme.surface,
-        borderRadius: const BorderRadius.all(
-          Radius.circular(20),
-        ),
+        borderRadius: BorderRadius.all(Radius.circular(radius)),
         border: Border.all(
           color: emphasis
               ? scheme.primary.withValues(alpha: .22)
@@ -648,9 +656,7 @@ class CarmelitaCard extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        borderRadius: const BorderRadius.all(
-          Radius.circular(20),
-        ),
+        borderRadius: BorderRadius.all(Radius.circular(radius)),
         onTap: onTap,
         child: content,
       ),
@@ -717,9 +723,11 @@ class ElegantHeader extends StatelessWidget {
       return _copy(context);
     }
 
+    final textScale = MediaQuery.textScalerOf(context).scale(1);
+
     return LayoutBuilder(
       builder: (context, constraints) {
-        if (constraints.maxWidth < 360) {
+        if (constraints.maxWidth < 420 || textScale > 1.3) {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -763,28 +771,36 @@ class SectionTitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final stack = MediaQuery.sizeOf(context).width < 370 ||
+        MediaQuery.textScalerOf(context).scale(1) > 1.3;
+    final copy = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: Theme.of(context).textTheme.titleLarge),
+        if (subtitle != null) ...[
+          const SizedBox(height: 3),
+          Text(subtitle!, style: Theme.of(context).textTheme.bodySmall),
+        ],
+      ],
+    );
+
+    if (trailing == null) return copy;
+    if (stack) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          copy,
+          const SizedBox(height: 6),
+          trailing!,
+        ],
+      );
+    }
+
     return Row(
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              if (subtitle != null) ...[
-                const SizedBox(height: 3),
-                Text(
-                  subtitle!,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
-            ],
-          ),
-        ),
-        if (trailing != null) trailing!,
+        Expanded(child: copy),
+        trailing!,
       ],
     );
   }

@@ -15,7 +15,7 @@ notifications/preferences, finance,
 discipline, analytics, native device binding/background location, feedback persistence,
 and final multi-account security/offline validation.
 
-The current project already uses one shared Flutter codebase and one Supabase backend so every role works with the same protected data source rather than separate databases.
+The current project already uses one shared Flutter codebase and one Supabase backend so every role works with the same protected data source rather than separate databases. Android and iOS are equal production mobile targets. Android may be implemented and validated first, but architecture, schemas, payloads, navigation, and acceptance criteria must remain iOS-compatible.
 
 > **Implementation status (September 20, 2026):** The repository has live Supabase authentication and role protection, accounts, rooms/assignments, guardian links, contract-to-billing synchronization, payments, maintenance, curfew/presence records, visitor requests and arrival/departure history, announcements, real-time messaging, confidential-report workflows, and owner contract CRUD. Notifications, finance, discipline, analytics, native device binding, and production hardening remain incomplete.
 
@@ -25,7 +25,7 @@ The current project already uses one shared Flutter codebase and one Supabase ba
 
 ## Client Applications
 
-- **Flutter Mobile** — primary interface for tenants and guardians.
+- **Flutter Mobile for Android and iOS** — production mobile interfaces for tenants, guardians, caretakers, and owners. Platform-specific capabilities must be validated on both operating systems before final release.
 - **Flutter Web / responsive Flutter interface** — primary management interface for the owner and caretaker.
 - **Flutter desktop targets** — project runners also exist for Windows, macOS, and Linux, although the main intended experiences are mobile and web/responsive administration.
 
@@ -1020,6 +1020,33 @@ Access must be tightly controlled through RLS and server-side authorization. The
 # 18. Announcements and Notifications
 
 **Split ownership:** Developer 1 owns staff publishing/backend contracts; Developer 2 owns Tenant/Guardian consumption, notification preferences, and user-facing notification UX.
+
+## Cross-Platform Push Delivery
+
+Firebase Cloud Messaging is the shared push-delivery layer for Android and iOS;
+FCM forwards iOS delivery through APNs. Initial implementation and testing may
+focus on Android, but it must not introduce an Android-only database or backend
+contract.
+
+```text
+Android / iOS Flutter app
+        ↓ register or refresh installation token
+Supabase push_devices (user, token, platform, installation, timestamps)
+        ↑
+notification row inserted → Supabase Edge Function → FCM → Android / APNs
+        ↓
+persistent in-app inbox + role-authorized deep link
+```
+
+- Store multiple installations per account and include `platform` (`android` or `ios`).
+- Keep Firebase/APNs credentials only in protected server secrets; never ship sender credentials in the app.
+- Persist the authorized notification record before attempting push delivery.
+- Handle token refresh, sign-out cleanup, invalid-token removal, and preference checks.
+- Handle foreground, background, terminated, and notification-tap behavior on both platforms.
+- Use per-device targeting for private events; broad topics must never leak role or tenancy information.
+- Start with new-announcement delivery, then payments, maintenance, visitors, and curfew decisions.
+- Defer noisy/high-stakes gate and geofence alerts until throttling, deduplication, and escalation behavior are proven.
+- iOS activation additionally requires Apple Developer configuration, Push Notifications and Background Modes capabilities, an APNs authentication key in Firebase, and physical-iPhone testing.
 
 ## Announcement Flow
 
@@ -2291,9 +2318,13 @@ Purpose:
 ```text
 Staff Creates Account
       ↓
-Email Verification Link and SMS OTP Sent
+No Verification Message Sent Automatically
       ↓
-Tenant Verifies Email and Mobile Number
+Tenant Attempts Sign-In and Selects Send Code
+      ↓
+Tenant Enters Six-Digit Email OTP
+      ↓
+Tenant Verifies Mobile Number When SMS Is Enabled
       ↓
 Tenant Sets Permanent Password
       ↓
@@ -2318,7 +2349,9 @@ Onboarding Completed
 
 Immediately after a tenant account and profile are created successfully, the
 account workflow should offer **Create contract now** and **Do this later**.
-Email and SMS verification are initiated immediately after profile creation.
+Email verification is initiated only after the user attempts sign-in and
+selects **Send code**. SMS verification remains deferred until a provider is
+enabled.
 The first contract option passes the new tenant profile ID into the editor,
 where the tenant is preselected and locked for the initial save. The operator
 must save a Draft, complete document verification, and use the separate
@@ -2331,9 +2364,11 @@ validation. The tenant remains visible as incomplete onboarding so staff can
 resume later. Keeping the records separate also prevents authentication changes
 from rewriting contract, billing, or payment history.
 
-Email and mobile verification are tracked independently. Email uses a secure
-verification link; mobile verification uses a short-lived, single-use SMS OTP
-with hashed storage, resend cooldowns, attempt limits, and audit timestamps.
+Email and mobile verification are tracked independently. Email uses a
+manually requested, six-digit, single-use OTP with expiry and resend cooldowns;
+account creation sends no message. Mobile verification will use a separate
+short-lived, single-use SMS OTP with hashed storage, resend cooldowns, attempt
+limits, and audit timestamps once enabled.
 Draft contract preparation may continue while verification is pending, but an
 account remains Pending verification and a contract cannot become Active until
 both required channels are verified.
@@ -2348,7 +2383,7 @@ both required channels are verified.
 ```text
 Create tenant account and profile
       ↓
-Verify email and SMS OTP
+Verify email OTP; verify SMS OTP when enabled
       ↓
 Set permanent password
       ↓
